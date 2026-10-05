@@ -1,0 +1,8 @@
+# 统一行尾，避免 Windows 上出现满屏 CRLF 警告
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

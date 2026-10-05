@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>读谱训练器 · 节奏与旋律随机生成 / 节拍器 / 调音器</title>
+<meta name="description" content="自动生成随机节奏型与旋律，五线谱与简谱对照显示；内置节拍器、调音器、调号音阶对照、常见乐器音阶表、固定调转换与图片导出。可离线使用的纯前端工具。">
+<meta name="theme-color" content="#0f1420">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <header class="app-head">
+    <div class="app-logo"><span class="mark">&#9835;</span><span>读谱训练器</span></div>
+    <div class="app-sub">随机节奏与旋律 · 节拍器 · 调音器 · 音阶对照 · 完全离线</div>
+    <span class="spacer"></span>
+    <span class="badge" id="hdr-audio">音频未启动</span>
+    <button class="btn small ghost" id="hdr-help">使用说明</button>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button class="tab active" data-tab="gen" role="tab"><span class="ico">&#9834;</span>生成 / 练习</button>
+    <button class="tab" data-tab="metro" role="tab"><span class="ico">&#9201;</span>节拍器</button>
+    <button class="tab" data-tab="tuner" role="tab"><span class="ico">&#9833;</span>调音器</button>
+    <button class="tab" data-tab="scale" role="tab"><span class="ico">&#9839;</span>调号与音阶</button>
+    <button class="tab" data-tab="inst" role="tab"><span class="ico">&#9835;</span>乐器音阶表</button>
+    <button class="tab" data-tab="ear" role="tab"><span class="ico">&#128066;</span>听辨练习</button>
+    <button class="tab" data-tab="lib" role="tab"><span class="ico">&#128218;</span>音型库 / 导出</button>
+  </nav>
+
+  <!-- ==================== 生成 / 练习 ==================== -->
+  <section class="panel active" data-panel="gen">
+
+    <div class="gen-layout">
+      <div class="gen-side">
+
+        <div class="card tight">
+          <div class="card-title">快速档位 <span class="hint">给不同水准的用户一键切换</span></div>
+          <div class="chip-row" id="gen-presets"></div>
+          <div class="hint" id="gen-preset-hint" style="margin-top:8px"></div>
+        </div>
+
+        <div class="card tight">
+          <div class="card-title">基本设置</div>
+          <div class="grid-2">
+            <div class="field">
+              <span class="label">生成内容</span>
+              <select id="gen-mode">
+                <option value="rhythm">只练节奏（单音）</option>
+                <option value="melody">旋律（含音高）</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="label">小节数</span>
+              <input type="number" id="gen-bars" min="1" max="32" step="1" value="4">
+            </div>
+            <div class="field">
+              <span class="label">拍号</span>
+              <select id="gen-time"></select>
+            </div>
+            <div class="field">
+              <span class="label">速度 <span class="hint" id="gen-tempo-val">60</span> PBM</span>
+              <input type="range" id="gen-tempo" min="30" max="220" step="1" value="60">
+            </div>
+            <div class="field">
+              <span class="label">调号</span>
+              <select id="gen-key"></select>
+            </div>
+            <div class="field">
+              <span class="label">谱号</span>
+              <select id="gen-clef">
+                <option value="treble">高音谱号</option>
+                <option value="bass">低音谱号</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tight">
+          <div class="card-title">允许使用的音符时值 <span class="hint">未选中的不会出现</span></div>
+          <div class="chip-row" id="gen-durations"></div>
+          <div class="row" style="margin-top:10px">
+            <label class="check"><input type="checkbox" id="gen-dotted"> 允许附点</label>
+            <label class="check"><input type="checkbox" id="gen-rests" checked> 允许休止符</label>
+            <label class="check"><input type="checkbox" id="gen-sync"> 允许切分/延音线</label>
+          </div>
+          <div class="field" style="margin-top:10px">
+            <span class="label">休止符出现频率 <span class="hint" id="gen-restratio-val">15%</span></span>
+            <input type="range" id="gen-restratio" min="0" max="50" step="5" value="15">
+          </div>
+        </div>
+
+        <div class="card tight" id="gen-pitch-card">
+          <div class="card-title">允许使用的音级 <span class="hint">1 = 主音（首调唱名 do）</span></div>
+          <div class="chip-row" id="gen-degrees"></div>
+          <div class="grid-2" style="margin-top:10px">
+            <div class="field">
+              <span class="label">最低八度</span>
+              <select id="gen-lowoct"></select>
+            </div>
+            <div class="field">
+              <span class="label">最高八度</span>
+              <select id="gen-highect"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <label class="check"><input type="checkbox" id="gen-chromatic"> 允许调外变化音</label>
+            <label class="check"><input type="checkbox" id="gen-starttonic"> 从主音开始</label>
+          </div>
+        </div>
+
+        <div class="card tight">
+          <div class="card-title">显示方式</div>
+          <div class="chip-row" id="gen-display"></div>
+          <div class="row" style="margin-top:10px">
+            <label class="check"><input type="checkbox" id="gen-showname"> 谱下显示音名</label>
+            <label class="check"><input type="checkbox" id="gen-showsolfa" checked> 谱下显示唱名</label>
+            <label class="check"><input type="checkbox" id="gen-jpfixed"> 简谱用固定调</label>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="gen-main">
+        <div class="card">
+          <div class="card-title">
+            <span id="gen-title">练习谱</span>
+            <span class="badge" id="gen-meta">—</span>
+            <span class="spacer"></span>
+            <span class="badge" id="gen-seed">seed —</span>
+          </div>
+
+          <div class="row" style="margin-bottom:12px">
+            <button class="btn primary lg" id="gen-new">&#127922; 生成新乐段</button>
+            <button class="btn lg" id="gen-play">&#9654; 播放</button>
+            <button class="btn" id="gen-playmetro">&#9201; 跟节拍器播放</button>
+            <button class="btn ghost" id="gen-stop" disabled>&#9632; 停止</button>
+            <span class="spacer"></span>
+            <button class="btn small ghost" id="gen-records">练习记录</button>
+          </div>
+
+          <div class="row" id="gen-playbar" style="margin-bottom:12px; display:none">
+            <span class="badge accent" id="gen-progress">准备中…</span>
+            <span class="badge" id="gen-curtempo">—</span>
+            <span class="spacer"></span>
+            <button class="btn small" id="gen-slower">−5 PBM</button>
+            <button class="btn small" id="gen-faster">+5 PBM</button>
+          </div>
+
+          <div class="score-sheet" id="gen-sheet">
+            <div class="notation-host" id="gen-staff-host"></div>
+            <div class="notation-host" id="gen-jianpu-host"></div>
+          </div>
+        </div>
+
+        <div class="card" id="prac-card">
+          <div class="card-title">练习模式 <span class="hint">倒计时预备拍 · 跟谱高亮 · 速度渐变</span></div>
+          <div id="prac-mount"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 节拍器 ==================== -->
+  <section class="panel" data-panel="metro">
+    <div class="card">
+      <div class="card-title">节拍器 <span class="hint">所有声音由音频引擎合成，无需音频文件</span></div>
+      <div id="metro-mount"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 调音器 ==================== -->
+  <section class="panel" data-panel="tuner">
+    <div class="card">
+      <div class="card-title">调音器 <span class="hint" id="tuner-env-hint"></span></div>
+      <div id="tuner-mount"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 调号与音阶 ==================== -->
+  <section class="panel" data-panel="scale">
+    <div class="card">
+      <div class="card-title">
+        调号与音阶对照
+        <span class="spacer"></span>
+        <button class="btn small" id="scale-png">&#128247; 保存为图片</button>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <div class="field" style="min-width:190px">
+          <span class="label">选择调</span>
+          <select id="scale-key"></select>
+        </div>
+        <div class="field" style="min-width:150px">
+          <span class="label">音阶类型</span>
+          <select id="scale-type">
+            <option value="major">自然大调</option>
+            <option value="harmonic">和声小调</option>
+            <option value="natural">自然小调</option>
+          </select>
+        </div>
+        <div class="field" style="min-width:170px">
+          <span class="label">简谱写法</span>
+          <select id="scale-jpmode">
+            <option value="relative">首调（主音=1）</option>
+            <option value="fixed">固定调</option>
+          </select>
+        </div>
+        <label class="check"><input type="checkbox" id="scale-solfa" checked> 显示唱名</label>
+        <label class="check"><input type="checkbox" id="scale-circles" checked> 显示五度圈</label>
+      </div>
+      <div id="scale-mount"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        移调 / 固定调转换
+        <span class="spacer"></span>
+        <button class="btn small" id="tr-png">&#128247; 保存为图片</button>
+      </div>
+      <div id="transpose-mount" data-role="transpose"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 乐器音阶表 ==================== -->
+  <section class="panel" data-panel="inst">
+    <div class="card">
+      <div class="card-title">
+        常见乐器音阶表
+        <span class="spacer"></span>
+        <button class="btn small" id="inst-png">&#128247; 保存为图片</button>
+        <button class="btn small ghost" id="inst-copy">复制文字表</button>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <div class="field" style="min-width:170px">
+          <span class="label">乐器</span>
+          <select id="inst-id"></select>
+        </div>
+        <div class="field" style="min-width:170px">
+          <span class="label">调</span>
+          <select id="inst-key"></select>
+        </div>
+        <div class="field" style="min-width:130px">
+          <span class="label">最高品位</span>
+          <select id="inst-maxfret">
+            <option value="5">5 品</option>
+            <option value="7">7 品</option>
+            <option value="12" selected>12 品</option>
+            <option value="15">15 品</option>
+          </select>
+        </div>
+        <label class="check"><input type="checkbox" id="inst-solfa" checked> 显示唱名</label>
+        <label class="check"><input type="checkbox" id="inst-onlyscale"> 只显示音阶内音</label>
+      </div>
+      <div id="inst-mount"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 听辨练习 ==================== -->
+  <section class="panel" data-panel="ear">
+    <div class="card">
+      <div class="card-title">听辨练习 <span class="hint">节奏模仿与音程辨识，自动打分</span></div>
+      <div id="ear-mount"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 音型库 / 导出 ==================== -->
+  <section class="panel" data-panel="lib">
+    <div class="card">
+      <div class="card-title">自定义节奏型 / 音型库</div>
+      <div id="lib-mount"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">导出</div>
+      <div id="exp-mount"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">练习进度统计</div>
+      <div id="stats-mount"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">关于与数据</div>
+      <div class="row">
+        <button class="btn small ghost" id="about-help">使用说明</button>
+        <button class="btn small ghost" id="about-copyconf">复制当前配置</button>
+        <span class="hint">所有数据（自定义节奏型、练习记录、偏好设置）只保存在本机浏览器里，不会上传。</span>
+      </div>
+      <div class="hint" id="about-info" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+</div>
+
+<script src="src/core/util.js"></script>
+<script src="src/core/theory.js"></script>
+<script src="src/core/generator.js"></script>
+<script src="src/core/renderer.js"></script>
+<script src="src/core/jianpu.js"></script>
+<script src="src/audio/tuner.js"></script>
+<script src="src/audio/engine.js"></script>
+<script src="src/data/instruments.js"></script>
+<script src="src/export/exporter.js"></script>
+<script src="src/features/library.js"></script>
+<script src="src/features/ear.js"></script>
+<script src="src/features/practice.js"></script>
+<script src="src/app.js"></script>
+<script>
+/* PWA：只在 http(s) 下注册 Service Worker；file:// 打开时跳过（否则报错） */
+if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* 离线缓存失败不影响使用 */ });
+  });
+}
+</script>
+</body>
+</html>

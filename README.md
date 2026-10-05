@@ -1,0 +1,191 @@
+# 读谱训练器（yuedu-trainer）
+
+一个**零依赖、纯前端、可离线**的读谱（视奏）训练工具：随机生成五线谱 / 简谱练习，
+支持音符与节奏型白名单、节拍器、调音器、调号音阶对照、乐器音阶表、移调、
+导出 PNG / MIDI / MusicXML、练习模式、听辨训练与自定义音型库。
+
+- 不联网、不上传任何数据，全部计算在浏览器本地完成；
+- 没有 npm 依赖、没有打包器、没有 CDN，源码就是一堆普通 `<script>`；
+- 练习记录与自定义音型只保存在你自己的浏览器 `localStorage` 里。
+
+---
+
+## 一、三种打开方式
+
+### 1. 离线单文件（最省事，双击即用）
+
+直接双击构建产物：
+
+```
+dist/yuedu-trainer.html
+```
+
+CSS 与全部 JS 都已经内联进这一个文件，`file://` 下也能正常用（生成、渲染、播放、导出、练习都行）。
+
+> ⚠️ 唯一限制：**调音器不能用**。浏览器规定麦克风只在「安全上下文」可用，
+> `file://` 不算，所以双击打开时调音器会给出提示。需要调音器请用方式 2 或 3。
+
+### 2. 本地开发服务器（推荐，调音器可用）
+
+```powershell
+node tools/serve.js
+```
+
+然后浏览器访问 <http://127.0.0.1:8099/>。
+
+换端口 / 换根目录：
+
+```powershell
+node tools/serve.js --port 8123
+node tools/serve.js --root dist/site
+```
+
+`http://127.0.0.1` 与 `http://localhost` 被浏览器视为安全上下文，**调音器可以正常调用麦克风**。
+服务停止：在终端按 `Ctrl+C`。
+
+### 3. GitHub Pages 在线版
+
+把 `dist/site/` 目录的内容发布到 GitHub Pages（或任意静态托管）后，用 `https://` 访问即可，
+调音器同样可用（https 也是安全上下文）。
+
+在线地址：
+
+<!-- TODO: 部署后填入 GitHub Pages 地址 -->
+
+---
+
+## 二、功能怎么用
+
+界面顶部有 7 个标签页：**生成 / 练习**、**节拍器**、**调音器**、**调号与音阶**、
+**乐器音阶表**、**听辨练习**、**音型库 / 导出**。
+
+| 功能 | 说明 |
+| --- | --- |
+| **五线谱 / 简谱切换** | 同一段乐谱可随时切换五线谱（SVG 手绘，含谱号、调号、拍号、符杠、加线）与简谱（首调/固定调可切，含高低八度点、减时线、延音线）。 |
+| **只选某些音符与节奏型** | 在「时值」里勾选允许出现全音符 / 二分 / 四分 / 八分 / 十六分、是否允许附点、是否允许休止；在「旋律」里勾选允许使用的音级（1–7），只留 1 2 3 4 就是「四音练习」。也可以指定只用音型库里收藏的节奏型。 |
+| **节拍器** | 独立节拍器，可选拍号、速度、重音、细分；跟谱播放时可叠加节拍器与预备拍（count-in）。 |
+| **调音器** | 用麦克风实时检测音高，指针表盘显示偏差 cents、音名、目标音；支持半音阶 / 吉他 / 尤克里里调弦模式与 A4 基准频率调整。 |
+| **调号音阶对照** | 常用调的调号（升降号个数与位置）+ 音阶音级对照表，同时给出首调唱名（do re mi…）。 |
+| **乐器音阶表** | 吉他 / 尤克里里 / 贝斯指板音位、10 孔口琴吹吸音位、竖笛指法、钢琴键位可视化。 |
+| **移调** | 降 B 调单簧管 / 小号、降 E 调中音萨克斯、降 B 调次中音萨克斯、F 调圆号等移调乐器，一键把谱面记谱音换算成实际音或反向换算。 |
+| **导出 PNG / MIDI / MusicXML** | PNG 走 Canvas 手绘（`file://` 下也能导出），MIDI 为标准文件（含 tempo），MusicXML 可直接导入 MuseScore 等打谱软件。 |
+| **练习模式** | 跟谱练习：预备拍倒计时、速度渐变（慢练→原速）、进度记录与统计。 |
+| **听辨训练** | 播放随机节奏 / 音程，你用鼠标或键盘作答，实时判分并统计正确率。 |
+| **音型库** | 把喜欢的节奏型收藏起来（可改名、删除），生成时直接指定只用这些音型；数据存在本机 `localStorage`。 |
+
+**快捷键**：`空格` = 播放 / 停止，`N` = 重新生成一段，`1`–`7` = 切换到对应标签页。
+
+---
+
+## 三、调音器为什么必须走 https 或 localhost
+
+浏览器的安全策略规定：`getUserMedia`（麦克风、摄像头）只在**安全上下文（Secure Context）**中可用。
+被认定为安全上下文的情况有：
+
+- `https://…`（任意域名）；
+- `http://127.0.0.1`、`http://localhost`、`http://[::1]` —— 本机回环地址被特殊豁免；
+- `file://` —— **不算**安全上下文，因此双击打开的单文件版**无法使用麦克风**。
+
+所以：
+
+- 想用调音器 → 用 `node tools/serve.js` 起服务后访问 <http://127.0.0.1:8099/>，或部署到 https 站点；
+- 只是打谱、生成、播放、导出 → 双击 `dist/yuedu-trainer.html` 就够了。
+
+---
+
+## 四、目录结构
+
+```
+yuedu-trainer/
+├── index.html                # 入口（按固定顺序加载各模块）
+├── manifest.webmanifest      # PWA 清单
+├── sw.js                     # Service Worker（预缓存 + 缓存优先/网络更新）
+├── icons/                    # PWA 图标（icon-192.png / icon-512.png，程序化生成）
+├── src/
+│   ├── styles.css            # 全部样式（CSS 变量 + 通用组件类）
+│   ├── core/                 # util 理论 生成器 五线谱渲染 简谱渲染
+│   ├── audio/                # 调音器 音频引擎
+│   ├── data/                 # 乐器音位数据
+│   ├── export/               # PNG / MIDI / MusicXML 导出
+│   ├── features/             # 音型库 / 听辨 / 练习模式
+│   └── app.js                # 装配界面与事件
+├── docs/
+│   └── CONTRACTS.md          # 模块契约（唯一事实来源）
+├── tools/
+│   ├── build.js              # 构建：单文件版 + 多文件站点版
+│   ├── serve.js              # 本地开发服务器
+│   ├── selfcheck.js          # 一键自检（跑所有测试脚本）
+│   ├── gen-icons.js          # 程序化生成 PNG 图标（手写 PNG 字节）
+│   ├── test-*.js             # 单元测试
+│   └── _t_*.js               # 专项/集成测试
+└── dist/                     # 构建产物（已被 .gitignore 忽略）
+    ├── yuedu-trainer.html    # 单文件离线版
+    └── site/                 # 多文件站点版（可直接部署）
+```
+
+模块划分、数据结构与各模块 API 请见 [`docs/CONTRACTS.md`](docs/CONTRACTS.md)。
+
+---
+
+## 五、自己构建
+
+```powershell
+node tools/build.js                 # 输出到 dist/
+node tools/build.js --out dist      # 显式指定输出根目录
+node tools/build.js --root <目录>   # 指定项目根（一般不用）
+```
+
+构建做了什么：
+
+1. 读 `index.html`，把 `<link rel="stylesheet" href="src/styles.css">` 换成 `<style>…</style>`，
+   把每个 `<script src="…">` 换成 `<script>…</script>`，**顺序保持不变**；
+2. 写出单文件版 `dist/yuedu-trainer.html`（可 `file://` 直开）；
+3. 复制一份常规多文件版到 `dist/site/`（含 `index.html`、`src/`、`icons/`、
+   `manifest.webmanifest`、`sw.js`），供 GitHub Pages 之类托管使用；
+4. 生成 `dist/site/version.json`：`{ name, version, builtAt, files: [{ path, bytes, sha1 }] }`；
+5. 自校验：读回产物，断言其中不再出现 `src="src/…"` 与 `href="src/styles.css"`，
+   并检查内联 JS 中不含行首 `import` / `export` 语句。
+
+脚本会打印每个被内联文件的大小、内联总量与最终产物大小；
+若某个源文件还不存在，会打印醒目的 `[缺失]` 提示并继续（产物里用注释占位），不会崩溃。
+
+重新生成图标（可选）：
+
+```powershell
+node tools/gen-icons.js
+```
+
+---
+
+## 六、跑自检
+
+```powershell
+node tools/selfcheck.js
+```
+
+它会依次运行 `tools/test-theory.js`、`tools/test-generator.js`、`tools/test-render.js`
+以及所有 `tools/_t_*.js`，打印每个脚本的耗时、总表和结论；
+全部通过退出码为 `0`，有失败为 `1`。不存在的测试文件会打印 `[缺失]` 并跳过。
+子进程输出直接透传到当前终端（避免本机 `child_process` 捕获输出时的 `EPERM` 限制）。
+
+---
+
+## 七、技术说明
+
+- **零依赖**：不使用任何 npm 包、打包器、CDN；`tools/` 下的脚本只用 node 内置模块
+  （`fs` / `path` / `http` / `zlib` / `crypto` / `child_process`）。
+- **离线可用**：`sw.js` 预缓存整个应用外壳，断网也能打开；导航请求走「网络优先、失败回退缓存」，
+  静态资源走「缓存优先、网络更新」。缓存名带版本号，升级时自动清理旧缓存。
+- **数据只存本地**：练习记录、自定义音型等全部写在浏览器 `localStorage`，不上传、不联网、
+  没有账号与埋点。清除浏览器数据即可重置。
+- **模块约定**：所有源码通过 IIFE 注册到全局 `window.APP`，不使用 `import` / `export` / `require`，
+  因此可以按固定顺序用普通 `<script>` 加载，也可以被无损内联成单个 HTML 文件。
+- **已知环境注意**：本项目的目标运行环境中整数除法在个别情况下不可靠，
+  因此所有时值换算统一走 `APP.util.beatsOf(dur, dotted)`（查表 + 乘法），不要直接写 `4 / dur`。
+  详见 `docs/CONTRACTS.md` 第 1 节。
+
+---
+
+## 八、许可证
+
+MIT License，作者 `yuedu-trainer contributors`，年份 2026。详见 [LICENSE](LICENSE)。

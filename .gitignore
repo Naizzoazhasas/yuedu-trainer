@@ -1,0 +1,13 @@
+# 依赖与构建产物
+node_modules/
+dist/
+tools/_out/
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# 操作系统垃圾文件
+.DS_Store
+Thumbs.db
+desktop.ini
