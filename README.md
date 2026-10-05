@@ -4,6 +4,13 @@
 支持音符与节奏型白名单、节拍器、调音器、调号音阶对照、乐器音阶表、移调、
 导出 PNG / MIDI / MusicXML、练习模式、听辨训练与自定义音型库。
 
+## 🌐 在线使用
+
+**<https://naizzoazhasas.github.io/yuedu-trainer/>**
+
+用浏览器直接打开即可，无需安装。在线版是 `https`，所以**调音器可以正常使用麦克风**，
+也可以「添加到主屏幕 / 安装为应用」后离线使用（内置 Service Worker）。
+
 - 不联网、不上传任何数据，全部计算在浏览器本地完成；
 - 没有 npm 依赖、没有打包器、没有 CDN，源码就是一堆普通 `<script>`；
 - 练习记录与自定义音型只保存在你自己的浏览器 `localStorage` 里。
@@ -12,7 +19,13 @@
 
 ## 一、三种打开方式
 
-### 1. 离线单文件（最省事，双击即用）
+### 0. 在线版（最省事，推荐）
+
+直接打开 **<https://naizzoazhasas.github.io/yuedu-trainer/>**。
+想装成应用：Chrome / Edge 地址栏右侧点「安装」，或在手机浏览器里「添加到主屏幕」，
+之后就能像普通 app 一样从桌面图标启动，断网也能用（调音器需要联网首次加载，之后走缓存）。
+
+### 1. 离线单文件（双击即用）
 
 直接双击构建产物：
 
@@ -43,14 +56,27 @@ node tools/serve.js --root dist/site
 `http://127.0.0.1` 与 `http://localhost` 被浏览器视为安全上下文，**调音器可以正常调用麦克风**。
 服务停止：在终端按 `Ctrl+C`。
 
-### 3. GitHub Pages 在线版
+### 3. 自己部署到 GitHub Pages（本仓库就是这样上线的）
 
-把 `dist/site/` 目录的内容发布到 GitHub Pages（或任意静态托管）后，用 `https://` 访问即可，
-调音器同样可用（https 也是安全上下文）。
+本项目已经通过 **Settings → Pages → Source: Deploy from a branch → main / (root)** 上线，
+因为根目录的 `index.html` 用的都是相对路径，不需要任何构建产物就能直接跑。
 
-在线地址：
+如果你想放到自己的仓库：
 
-<!-- TODO: 部署后填入 GitHub Pages 地址 -->
+1. 把本项目推到你的 GitHub 仓库
+2. Settings → Pages → Source 选 `Deploy from a branch`，分支 `main`，目录 `/ (root)`
+3. 等 1–2 分钟即可
+
+也可以改用仓库里自带的 Actions 工作流（`.github/workflows/deploy.yml`），
+它会在每次推送时自动跑测试、构建，再发布 `dist/site/`：
+
+- Settings → Actions → General → Workflow permissions 选 **Read and write permissions**
+- Settings → Pages → Source 选 **GitHub Actions**
+
+| 方式 | 优点 | 注意 |
+|---|---|---|
+| 分支发布（当前使用） | 零配置、立刻可用 | 发布的是源码目录 |
+| Actions 工作流 | 自动构建、跑测试 | 需要开启 workflow 写权限 |
 
 ---
 
