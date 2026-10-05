@@ -27,9 +27,9 @@ const TOOLS = path.join(__dirname);
 const NODE = process.execPath;
 const TIMEOUT_MS = 180000;
 
-const NAMED = ['test-theory.js', 'test-generator.js', 'test-render.js'];
+const NAMED = ['test-theory.js', 'test-generator.js', 'test-render.js', 'test-app.js'];
 
-/* 扫描 tools/_t_*.js（glob 风格：以 _t_ 开头、以 .js 结尾） */
+/* 扫描 tools/_t_*.js 以及其它 test-*.js（glob 风格：以 _t_ 或 test- 开头、以 .js 结尾） */
 function scanUnderscoreTests() {
   let names = [];
   try {
@@ -38,7 +38,7 @@ function scanUnderscoreTests() {
     return [];
   }
   return names
-    .filter(function (n) { return /^_t_.*\.js$/.test(n); })
+    .filter(function (n) { return /^(_t_|test-).*\.js$/.test(n); })
     .filter(function (n) { return fs.statSync(path.join(TOOLS, n)).isFile(); })
     .sort();
 }
