@@ -12,7 +12,8 @@
 也可以「添加到主屏幕 / 安装为应用」后离线使用（内置 Service Worker）。
 
 - 不联网、不上传任何数据，全部计算在浏览器本地完成；
-- 没有 npm 依赖、没有打包器、没有 CDN，源码就是一堆普通 `<script>`；
+- 无需 `npm install`：没有打包器、没有 CDN，源码就是一堆普通 `<script>`；
+  五线谱排版用的 [VexFlow](https://github.com/vexflow/vexflow) 已作为普通文件内置于 `vendor/`；
 - 练习记录与自定义音型只保存在你自己的浏览器 `localStorage` 里。
 
 ---
@@ -87,7 +88,7 @@ node tools/serve.js --root dist/site
 
 | 功能 | 说明 |
 | --- | --- |
-| **五线谱 / 简谱切换** | 同一段乐谱可随时切换五线谱（SVG 手绘，含谱号、调号、拍号、符杠、加线）与简谱（首调/固定调可切，含高低八度点、减时线、延音线）。 |
+| **五线谱 / 简谱切换** | 同一段乐谱可随时切换五线谱与简谱（首调/固定调可切，含高低八度点、减时线、延音线）。五线谱默认用 **VexFlow** 专业排版引擎（谱号、调号、拍号、符干方向、符杠、附点、加线、跨小节延音线全部按 engraving 规范绘制），也可在「五线谱渲染引擎」里切回**内置自绘**（零依赖、体积小）。VexFlow 没加载成功时会自动降级到内置渲染器，不会出现空白谱面。 |
 | **只选某些音符与节奏型** | 在「时值」里勾选允许出现全音符 / 二分 / 四分 / 八分 / 十六分、是否允许附点、是否允许休止；在「旋律」里勾选允许使用的音级（1–7），只留 1 2 3 4 就是「四音练习」。也可以指定只用音型库里收藏的节奏型。 |
 | **节拍器** | 独立节拍器，可选拍号、速度、重音、细分；跟谱播放时可叠加节拍器与预备拍（count-in）。 |
 | **调音器** | 用麦克风实时检测音高，指针表盘显示偏差 cents、音名、目标音；支持半音阶 / 吉他 / 尤克里里调弦模式与 A4 基准频率调整。 |
@@ -127,9 +128,11 @@ yuedu-trainer/
 ├── manifest.webmanifest      # PWA 清单
 ├── sw.js                     # Service Worker（预缓存 + 缓存优先/网络更新）
 ├── icons/                    # PWA 图标（icon-192.png / icon-512.png，程序化生成）
+├── vendor/
+│   └── vexflow.js            # VexFlow 4.2.3（本地内置，MIT，五线谱专业排版引擎）
 ├── src/
 │   ├── styles.css            # 全部样式（CSS 变量 + 通用组件类）
-│   ├── core/                 # util 理论 生成器 五线谱渲染 简谱渲染
+│   ├── core/                 # util 理论 生成器 五线谱渲染 VexFlow后端 简谱渲染
 │   ├── audio/                # 调音器 音频引擎
 │   ├── data/                 # 乐器音位数据
 │   ├── export/               # PNG / MIDI / MusicXML 导出
@@ -142,10 +145,15 @@ yuedu-trainer/
 │   ├── serve.js              # 本地开发服务器
 │   ├── selfcheck.js          # 一键自检（跑所有测试脚本）
 │   ├── gen-icons.js          # 程序化生成 PNG 图标（手写 PNG 字节）
+│   ├── prepare.js            # 一键准备：桌面快捷方式 + 上传包 + 使用说明
+│   ├── verify-build.js       # 构建产物校验（单文件版/站点版自包含性）
+│   ├── verify-single.js      # 用无头浏览器验证单文件离线版
+│   ├── verify-vexflow.js     # 用无头浏览器验证 VexFlow 后端 48 个用例
+│   ├── zipwriter.js          # 纯 node 的 UTF-8 ZIP 打包器
 │   ├── test-*.js             # 单元测试
 │   └── _t_*.js               # 专项/集成测试
 └── dist/                     # 构建产物（已被 .gitignore 忽略）
-    ├── yuedu-trainer.html    # 单文件离线版
+    ├── yuedu-trainer.html    # 单文件离线版（约 1.4 MB，含 VexFlow）
     └── site/                 # 多文件站点版（可直接部署）
 ```
 
@@ -198,10 +206,18 @@ node tools/selfcheck.js
 
 ## 七、技术说明
 
-- **零依赖**：不使用任何 npm 包、打包器、CDN；`tools/` 下的脚本只用 node 内置模块
-  （`fs` / `path` / `http` / `zlib` / `crypto` / `child_process`）。
-- **离线可用**：`sw.js` 预缓存整个应用外壳，断网也能打开；导航请求走「网络优先、失败回退缓存」，
-  静态资源走「缓存优先、网络更新」。缓存名带版本号，升级时自动清理旧缓存。
+- **自带依赖，但不装依赖**：项目源码不使用任何 npm 包、打包器或 CDN；
+  `tools/` 下的脚本只用 node 内置模块（`fs` / `path` / `http` / `zlib` / `crypto` / `child_process`）。
+  唯一的第三方库 **VexFlow 4.2.3**（MIT）已作为普通文件内置于 [`vendor/vexflow.js`](vendor/vexflow.js)，
+  用 `<script>` 直接加载，不经过 npm、不联网、可离线。
+- **五线谱双渲染后端**：默认 VexFlow（专业 engraving，符干/符杠/加线/延音线按规范绘制），
+  内置自绘渲染器作为零依赖后备。可用 `#gen-renderer` 切换；VexFlow 加载失败时自动降级，
+  不会出现空白谱面（`APP.vexrender.isAvailable()` + `renderScoreInto` 的错误回退）。
+- **渲染后端选择逻辑**（`src/app.js` 的 `resolveRenderer()`）：
+  `auto`（有 VexFlow 就用）→ `vexflow`（强制，失败回退）→ `builtin`（强制自绘）。
+- **离线可用**：`sw.js` 预缓存整个应用外壳（含 `vendor/vexflow.js`），断网也能打开；
+  导航请求走「网络优先、失败回退缓存」，静态资源走「缓存优先、网络更新」。
+  缓存名带版本号，升级时自动清理旧缓存。
 - **数据只存本地**：练习记录、自定义音型等全部写在浏览器 `localStorage`，不上传、不联网、
   没有账号与埋点。清除浏览器数据即可重置。
 - **模块约定**：所有源码通过 IIFE 注册到全局 `window.APP`，不使用 `import` / `export` / `require`，
@@ -209,9 +225,34 @@ node tools/selfcheck.js
 - **已知环境注意**：本项目的目标运行环境中整数除法在个别情况下不可靠，
   因此所有时值换算统一走 `APP.util.beatsOf(dur, dotted)`（查表 + 乘法），不要直接写 `4 / dur`。
   详见 `docs/CONTRACTS.md` 第 1 节。
+- **谱面渲染的自动化验证**：`tools/verify-vexflow.js` 用无头 Edge/Chrome 跑 48 个渲染用例
+  （15 个调号、8 种拍号、加线、十六分、附点、休止、延音线、1/8/16 小节分行、低音谱、纯节奏），
+  `tools/verify-single.js` 用无头浏览器实际打开 `dist/yuedu-trainer.html` 验证「双击即用」路径。
 
 ---
 
-## 八、许可证
+## 八、第三方许可
+
+| 组件 | 版本 | 许可证 | 用途 |
+|---|---|---|---|
+| [VexFlow](https://github.com/vexflow/vexflow) | 4.2.3 | MIT | 五线谱专业排版（`vendor/vexflow.js`） |
+
+VexFlow 以未修改的官方构建产物形式内置，版权归其作者所有，许可证文本见其仓库。
+本项目自身的代码为 MIT（见下）。
+
+---
+
+## 八、第三方许可
+
+| 组件 | 版本 | 许可证 | 用途 |
+|---|---|---|---|
+| [VexFlow](https://github.com/vexflow/vexflow) | 4.2.3 | MIT | 五线谱专业排版（`vendor/vexflow.js`） |
+
+VexFlow 以未修改的官方构建产物形式内置，版权归其作者所有，许可证文本见其仓库。
+本项目自身的代码为 MIT（见下）。
+
+---
+
+## 九、许可证
 
 MIT License，作者 `yuedu-trainer contributors`，年份 2026。详见 [LICENSE](LICENSE)。

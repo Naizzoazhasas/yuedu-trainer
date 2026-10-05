@@ -34,6 +34,8 @@ const EXPECTED_SCRIPTS = [
   'src/core/theory.js',
   'src/core/generator.js',
   'src/core/renderer.js',
+  'vendor/vexflow.js',
+  'src/core/vexrender.js',
   'src/core/jianpu.js',
   'src/audio/tuner.js',
   'src/audio/engine.js',
@@ -45,8 +47,12 @@ const EXPECTED_SCRIPTS = [
   'src/app.js'
 ];
 const EXPECTED_STYLES = 'src/styles.css';
-/* 需要随多文件版本一起发布的静态资源（存在才复制） */
-const SITE_ASSETS = ['manifest.webmanifest', 'sw.js', 'icons/icon-192.png', 'icons/icon-512.png'];
+/* 需要随多文件版本一起发布的静态资源（存在才复制）。
+ * vendor/ 必须带上，否则站点版没有 VexFlow，五线谱会退回内置渲染器。 */
+const SITE_ASSETS = [
+  'manifest.webmanifest', 'sw.js', 'vendor/vexflow.js',
+  'icons/icon-192.png', 'icons/icon-512.png'
+];
 
 /* 一次性同时匹配 <link rel="stylesheet" ...> 与 <script src="..." ...></script>，保证按文档顺序替换 */
 const TAG_RE = /<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*>|<script\b[^>]*\bsrc\s*=\s*["'][^"']+["'][^>]*>(?:\s*<\/script>)?/gi;
@@ -99,6 +105,20 @@ function reportMissingExpectations(root) {
 }
 
 /* ---------------- 内联 ---------------- */
+
+/* 删掉标记为「单文件版不要」的片段：
+ *   <!-- build:drop-start 说明 --> ... <!-- build:drop-end -->
+ * 用途：单文件离线版（file://）不需要 PWA 清单、图标与 Service Worker 注册，
+ * 留着只会让浏览器报 404。站点版保留原样。 */
+function stripDropBlocks(html, report) {
+  const re = /[ \t]*<!--\s*build:drop-start[\s\S]*?-->[\s\S]*?<!--\s*build:drop-end\s*-->[ \t]*\r?\n?/gi;
+  let n = 0;
+  const out = html.replace(re, function () { n++; return ''; });
+  if (n) console.log('  已移除 ' + n + ' 段「单文件版不需要」的内容（PWA 清单 / 图标 / Service Worker 注册）');
+  if (report) report.dropped = n;
+  return out;
+}
+
 function inlineHtml(html, root, report) {
   return html.replace(TAG_RE, function (tag) {
     const isScript = /^<script/i.test(tag);
@@ -235,7 +255,7 @@ function main() {
   /* 2) 单文件构建 */
   console.log('\n--- 内联 index.html ---');
   const t0 = Date.now();
-  const artifact = inlineHtml(html, root, report);
+  const artifact = inlineHtml(stripDropBlocks(html, report), root, report);
   const singlePath = path.join(outRoot, 'yuedu-trainer.html');
   fs.writeFileSync(singlePath, artifact, 'utf8');
   const singleBytes = fs.statSync(singlePath).size;

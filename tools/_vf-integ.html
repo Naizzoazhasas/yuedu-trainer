@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>读谱训练器 · 浏览器集成验证</title>
+</head>
+<body>
+<div style="font-family:Consolas,monospace;font-size:12px;background:#f5f7fa;padding:8px;white-space:pre-wrap" id="report">运行中…</div>
+<!-- 真实页面会被注入到这里。
+     注意：不能 display:none —— 那样所有节点尺寸都是 0，PNG 导出会正确地拒绝。
+     所以挪到屏幕外，保持可测量尺寸。 -->
+<div id="approot" style="position:absolute;left:-99999px;top:0;width:1200px"></div>
+
+<script>
+(function () {
+  var lines = [];
+  function log(s) { lines.push(s); document.getElementById('report').textContent = lines.join('\n'); }
+  function finish(tag) { document.title = tag; }
+
+  /* ---------- 1. 读真实 index.html 的 body 与脚本清单 ---------- */
+  fetch('../index.html').then(function (r) { return r.text(); }).then(function (html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var bodyHTML = doc.body.innerHTML;
+    /* 去掉末尾的 PWA 注册脚本段里的 ServiceWorker 逻辑无所谓，file:// 不会注册 */
+    document.getElementById('approot').innerHTML = bodyHTML;
+
+    var srcs = [];
+    var re = /<script\s+src="([^"]+)"><\/script>/g, m;
+    while ((m = re.exec(html))) srcs.push(m[1]);
+    log('index.html 脚本数: ' + srcs.length);
+    log(srcs.join('\n  '));
+
+    /* ---------- 2. 依次加载 ---------- */
+    return srcs.reduce(function (p, src, i) {
+      return p.then(function () {
+        return new Promise(function (res, rej) {
+          var s = document.createElement('script');
+          s.src = '../' + src;
+          s.onload = function () { res(); };
+          s.onerror = function () { rej(new Error('加载失败: ' + src)); };
+          document.head.appendChild(s);
+        }).then(function () {
+          if (i === srcs.length - 1) log('\n全部脚本加载完成');
+        });
+      });
+    }, Promise.resolve());
+  }).then(function () {
+    return new Promise(function (r) { setTimeout(r, 600); });
+  }).then(function () {
+    var APP = window.APP;
+    log('\n---------- 检查结果 ----------');
+    var checks = [];
+    function chk(name, cond, detail) {
+      checks.push({ name: name, ok: !!cond, detail: detail || '' });
+      log((cond ? '  [OK]   ' : '  [FAIL] ') + name + (detail ? '  → ' + detail : ''));
+    }
+
+    chk('APP 命名空间存在', !!APP);
+    chk('APP.vexrender 已注册', !!(APP && APP.vexrender));
+    chk('APP.vexrender.isAvailable() 为真', APP.vexrender && APP.vexrender.isAvailable(),
+      APP.vexrender ? APP.vexrender.version() : '-');
+    chk('Vex 全局可用', typeof Vex !== 'undefined');
+
+    var score = APP && APP.app && APP.app.getScore ? APP.app.getScore() : null;
+    chk('应用已生成乐段', !!score, score ? ('小节 ' + score.bars.length) : '');
+
+    var svg = document.querySelector('#gen-staff-host svg');
+    chk('五线谱已渲染', !!svg);
+    chk('渲染器是 VexFlow（data-renderer 属性）', svg && svg.getAttribute('data-renderer') === 'vexflow',
+      svg ? String(svg.getAttribute('data-renderer')) : '');
+    chk('VexFlow 输出了 SVG 子元素', svg && svg.querySelectorAll('*').length > 20,
+      svg ? (svg.querySelectorAll('*').length + ' 个元素') : '');
+
+    var hint = document.querySelector('#gen-renderer-hint');
+    chk('渲染器提示文字已更新', hint && hint.textContent.indexOf('VexFlow') >= 0, hint ? hint.textContent : '');
+
+    chk('简谱同时渲染出来了', !!document.querySelector('#gen-jianpu-host .jp-wrap'));
+    chk('渲染引擎选择控件存在', document.querySelectorAll('#gen-renderer .chip').length === 3,
+      document.querySelectorAll('#gen-renderer .chip').length + ' 个');
+
+    /* ---------- 3. 测 PNG 导出（VexFlow 节点 + exporter） ---------- */
+    log('\n---------- PNG 导出测试 ----------');
+    return new Promise(function (resolve) {
+      if (!APP['export'] || !APP['export'].toPNG) {
+        chk('exporter 可用', false);
+        resolve();
+        return;
+      }
+      var node = document.querySelector('#gen-sheet');
+      var t0 = performance.now();
+      APP['export'].toPNG(node, null, { download: false }).then(function (blob) {
+        var ms = Math.round(performance.now() - t0);
+        chk('导出谱面 PNG 成功', blob && blob.size > 1000, (blob ? blob.size + ' 字节' : '') + ' / ' + ms + 'ms');
+        window.__pngBlob = blob;
+        resolve();
+      }, function (e) {
+        chk('导出谱面 PNG 成功', false, e && e.message);
+        resolve();
+      });
+    });
+  }).then(function () {
+    /* 把 PNG 挂到页面上，便于截图肉眼确认 */
+    var blob = window.__pngBlob;
+    if (blob) {
+      var img = document.createElement('img');
+      img.id = 'png-result';
+      img.src = URL.createObjectURL(blob);
+      img.style.maxWidth = '100%';
+      img.style.border = '1px solid #ccc';
+      document.body.appendChild(img);
+    }
+    var bad = lines.filter(function (l) { return l.indexOf('[FAIL]') >= 0; }).length;
+    log('\n================ 汇总 ================');
+    log('失败项: ' + bad);
+    log(bad === 0 ? '浏览器集成验证全部通过 ✓' : '有失败 ✗');
+    finish(bad === 0 ? 'INTEG-ALL-PASS' : 'INTEG-FAIL-' + bad);
+  }).catch(function (e) {
+    log('异常: ' + (e && e.message ? e.message : e));
+    if (e && e.stack) log(e.stack.split('\n').slice(0, 4).join('\n'));
+    finish('INTEG-ERROR');
+  });
+})();
+</script>
+</body>
+</html>

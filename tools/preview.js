@@ -22,6 +22,9 @@ var G = APP.generator, R = APP.renderer, JP = APP.jianpu, TH = APP.theory, U = A
 var OUT = path.join(__dirname, '_out');
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
 
+/* VexFlow 在 node 下无法运行（需要真实 DOM + Canvas），所以这里的 SVG 预览用内置渲染器；
+ * VexFlow 的渲染效果由 tools/_vf-all.html + tools/_vf-integ.html 在无头浏览器里验证。 */
+var HAS_VEX = false;
 function writeSvg(name, svg) {
   var xml = dom.serialize(svg, true, 0);
   var p = path.join(OUT, name);

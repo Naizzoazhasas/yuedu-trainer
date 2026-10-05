@@ -11,7 +11,7 @@
 
 'use strict';
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE_NAME = 'yuedu-trainer-' + VERSION;
 
 /* 需要预缓存的应用外壳（脚本顺序与 index.html 一致） */
@@ -24,6 +24,8 @@ const APP_SHELL = [
   './src/core/theory.js',
   './src/core/generator.js',
   './src/core/renderer.js',
+  './vendor/vexflow.js',
+  './src/core/vexrender.js',
   './src/core/jianpu.js',
   './src/audio/tuner.js',
   './src/audio/engine.js',

@@ -27,7 +27,8 @@ const TOOLS = path.join(__dirname);
 const NODE = process.execPath;
 const TIMEOUT_MS = 180000;
 
-const NAMED = ['test-theory.js', 'test-generator.js', 'test-render.js', 'test-app.js'];
+const NAMED = ['test-theory.js', 'test-generator.js', 'test-render.js', 'test-app.js',
+  'verify-build.js', 'verify-single.js', 'verify-vexflow.js'];
 
 /* 扫描 tools/_t_*.js 以及其它 test-*.js（glob 风格：以 _t_ 或 test- 开头、以 .js 结尾） */
 function scanUnderscoreTests() {

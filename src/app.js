@@ -42,6 +42,7 @@
       useChromatic: false,
       startOnTonic: false,
       display: 'both',
+      renderer: 'auto',
       showName: false,
       showSolfa: true,
       jpFixed: false,
@@ -162,6 +163,25 @@
     return cfg;
   }
 
+  /* ---------------- 五线谱渲染后端选择 ---------------- */
+
+  /* 解析「实际使用哪个后端」：
+   *   auto     -> 有 VexFlow 就用 VexFlow，否则用内置自绘
+   *   vexflow  -> 强制 VexFlow（不可用则回退内置，并提示）
+   *   builtin  -> 强制内置自绘
+   * 返回 { name, api, fallback } —— fallback 表示发生了降级 */
+  function resolveRenderer() {
+    var want = state.renderer || 'auto';
+    var vfOk = !!(APP.vexrender && APP.vexrender.isAvailable && APP.vexrender.isAvailable());
+    if (want === 'builtin') return { name: 'builtin', api: R, fallback: false };
+    if (vfOk) return { name: 'vexflow', api: APP.vexrender, fallback: false };
+    return { name: 'builtin', api: R, fallback: want === 'vexflow' };
+  }
+
+  function rendererLabel(name) {
+    return name === 'vexflow' ? 'VexFlow' : '内置自绘';
+  }
+
   /* ---------------- 生成与渲染 ---------------- */
 
   function regenerate(opts) {
@@ -205,17 +225,37 @@
     if (!staffHost || !jpHost) return;
     var subText = state.showName && state.showSolfa ? 'both' : (state.showName ? 'name' : (state.showSolfa ? 'solfa' : false));
 
+    var pick = resolveRenderer();
     try {
       if (disp === 'staff' || disp === 'both') {
         staffHost.style.display = '';
-        R.renderScoreInto(staffHost, currentScore, {
+        var res = pick.api.renderScoreInto(staffHost, currentScore, {
           width: 940, showBarNumbers: true, showSubText: subText
         });
+        /* 如果 VexFlow 中途失败，立即用内置渲染器兜一次，保证用户一定看到谱 */
+        if (pick.name === 'vexflow' && res && res.error) {
+          U.toast('VexFlow 渲染出错，已自动切换内置渲染器', 'warn');
+          R.renderScoreInto(staffHost, currentScore, {
+            width: 940, showBarNumbers: true, showSubText: subText
+          });
+        }
       } else {
         staffHost.style.display = 'none';
         U.clear(staffHost);
       }
-    } catch (e) { /* 渲染失败不打断 */ }
+    } catch (e) {
+      /* 渲染失败不打断：退回内置渲染器 */
+      try {
+        R.renderScoreInto(staffHost, currentScore, { width: 940, showBarNumbers: true, showSubText: subText });
+      } catch (e2) { /* 忽略 */ }
+    }
+
+    /* 渲染引擎状态提示 */
+    var hint = U.query('#gen-renderer-hint');
+    if (hint) {
+      if (pick.fallback) hint.textContent = '（VexFlow 未加载，已用内置自绘）';
+      else hint.textContent = '（当前：' + rendererLabel(pick.name) + '）';
+    }
 
     try {
       if (disp === 'jianpu' || disp === 'both') {
@@ -229,6 +269,15 @@
         jpHost.style.display = 'none';
         U.clear(jpHost);
       }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  /* 播放高亮：VexFlow 与内置后端的 API 形状一致，直接按当前后端调用 */
+  function hl(pick, kind, sheet, bar, note) {
+    try {
+      if (kind === 'note' && pick.api.highlightNote) pick.api.highlightNote(sheet, bar, note);
+      else if (kind === 'bar' && pick.api.highlightBar) pick.api.highlightBar(sheet, bar);
+      else if (kind === 'clear' && pick.api.clearHighlight) pick.api.clearHighlight(sheet);
     } catch (e) { /* 忽略 */ }
   }
 
@@ -260,7 +309,7 @@
     if (transport) { try { transport.stop(); } catch (e) { /* 忽略 */ } }
     transport = null;
     var sheet = U.query('#gen-sheet');
-    if (sheet && R.clearHighlight) R.clearHighlight(sheet);
+    hl(resolveRenderer(), 'clear', sheet);
     setPlaying(false);
   }
 
@@ -269,6 +318,7 @@
     if (!ensureAudio()) { U.toast('音频引擎未加载', 'err'); return; }
     stopPlayback();
     var sheet = U.query('#gen-sheet');
+    var pick = resolveRenderer();
     var totalNotes = currentScore.bars.reduce(function (a, b) { return a + b.notes.length; }, 0);
     var curBar = -1, curNote = -1;
     var done = 0;
@@ -281,19 +331,19 @@
         timbre: state.mode === 'rhythm' ? 'clave' : 'piano',
         onBar: function (bar) {
           curBar = bar;
-          if (R.highlightBar) R.highlightBar(sheet, bar);
+          hl(pick, 'bar', sheet, bar);
           var prog = U.query('#gen-progress');
           if (prog) prog.textContent = '第 ' + (bar + 1) + ' / ' + currentScore.bars.length + ' 小节';
         },
         onNote: function (i, bar, note, info) {
           if (info && info.isRest) return;
           curNote = info && info.index !== undefined ? info.index : 0;
-          if (R.highlightNote) R.highlightNote(sheet, bar, curNote);
+          hl(pick, 'note', sheet, bar, curNote);
           done++;
         },
         onEnd: function () {
           transport = null;
-          if (R.clearHighlight) R.clearHighlight(sheet);
+          hl(pick, 'clear', sheet);
           setPlaying(false);
           U.toast('播放结束', 'ok');
           try { practiceCtl && practiceCtl.onPlaybackEnd && practiceCtl.onPlaybackEnd(); } catch (e) { /* 忽略 */ }
@@ -485,6 +535,17 @@
       { id: 'both', label: '两者都要' }
     ], function (it) { return state.display === it.id; }, function (it) {
       state.display = it.id; syncControls(); renderCurrent();
+    });
+
+    /* 五线谱渲染引擎选择 */
+    var vfReady = !!(APP.vexrender && APP.vexrender.isAvailable && APP.vexrender.isAvailable());
+    chipRow(U.query('#gen-renderer'), [
+      { id: 'auto', label: '自动', sub: vfReady ? 'VexFlow' : '内置' },
+      { id: 'vexflow', label: 'VexFlow', sub: vfReady ? '专业排版' : '未加载' },
+      { id: 'builtin', label: '内置自绘', sub: '零依赖' }
+    ], function (it) { return (state.renderer || 'auto') === it.id; }, function (it) {
+      state.renderer = it.id; syncControls(); renderCurrent();
+      if (it.id === 'vexflow' && !vfReady) U.toast('VexFlow 未加载，将使用内置自绘', 'warn');
     });
 
     var pc = U.query('#gen-pitch-card');
@@ -1155,9 +1216,10 @@
         },
         onHighlight: function (bar, note) {
           var sheet = U.query('#gen-sheet');
-          if (!sheet || !R) return;
-          if (R.highlightBar) R.highlightBar(sheet, bar);
-          if (R.highlightNote && note !== undefined && note !== null) R.highlightNote(sheet, bar, note);
+          if (!sheet) return;
+          var pick2 = resolveRenderer();
+          hl(pick2, 'bar', sheet, bar);
+          if (note !== undefined && note !== null) hl(pick2, 'note', sheet, bar, note);
           var target = sheet.querySelector('[data-bar-idx="' + bar + '"]');
           if (target && target.scrollIntoView) {
             try { sheet.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* 忽略 */ }

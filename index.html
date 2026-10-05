@@ -7,9 +7,11 @@
 <title>读谱训练器 · 节奏与旋律随机生成 / 节拍器 / 调音器</title>
 <meta name="description" content="自动生成随机节奏型与旋律，五线谱与简谱对照显示；内置节拍器、调音器、调号音阶对照、常见乐器音阶表、固定调转换与图片导出。可离线使用的纯前端工具。">
 <meta name="theme-color" content="#0f1420">
+<!-- build:drop-start 单文件离线版不需要 PWA 清单（file:// 下引用会 404） -->
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- build:drop-end -->
 <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
@@ -122,6 +124,10 @@
             <label class="check"><input type="checkbox" id="gen-showname"> 谱下显示音名</label>
             <label class="check"><input type="checkbox" id="gen-showsolfa" checked> 谱下显示唱名</label>
             <label class="check"><input type="checkbox" id="gen-jpfixed"> 简谱用固定调</label>
+          </div>
+          <div class="field" style="margin-top:10px">
+            <span class="label">五线谱渲染引擎 <span class="hint" id="gen-renderer-hint"></span></span>
+            <div class="chip-row" id="gen-renderer"></div>
           </div>
         </div>
 
@@ -300,6 +306,8 @@
 <script src="src/core/theory.js"></script>
 <script src="src/core/generator.js"></script>
 <script src="src/core/renderer.js"></script>
+<script src="vendor/vexflow.js"></script>
+<script src="src/core/vexrender.js"></script>
 <script src="src/core/jianpu.js"></script>
 <script src="src/audio/tuner.js"></script>
 <script src="src/audio/engine.js"></script>
@@ -309,6 +317,7 @@
 <script src="src/features/ear.js"></script>
 <script src="src/features/practice.js"></script>
 <script src="src/app.js"></script>
+<!-- build:drop-start 单文件离线版不注册 Service Worker（file:// 下没有 sw.js） -->
 <script>
 /* PWA：只在 http(s) 下注册 Service Worker；file:// 打开时跳过（否则报错） */
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
@@ -317,5 +326,6 @@ if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
   });
 }
 </script>
+<!-- build:drop-end -->
 </body>
 </html>

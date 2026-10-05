@@ -87,7 +87,7 @@ ok('关键元素存在 #gen-jianpu-host', !!doc.querySelector('#gen-jianpu-host'
 console.log('2. 加载全部脚本');
 var scriptSrcs = [];
 html.replace(/<script\s+src="([^"]+)"><\/script>/g, function (_, s) { scriptSrcs.push(s); return _; });
-ok('index.html 声明了 13 个脚本', scriptSrcs.length === 13, scriptSrcs.join(', '));
+ok('index.html 声明了 15 个脚本（含 VexFlow 与 vexrender）', scriptSrcs.length === 15, scriptSrcs.join(', '));
 
 var loadErrors = [];
 scriptSrcs.forEach(function (rel) {
@@ -285,7 +285,8 @@ ok('app.js 对每个可选模块都有存在性判断', (function () {
 console.log('9. 脚本顺序');
 var EXPECT = [
   'src/core/util.js', 'src/core/theory.js', 'src/core/generator.js', 'src/core/renderer.js',
-  'src/core/jianpu.js', 'src/audio/tuner.js', 'src/audio/engine.js', 'src/data/instruments.js',
+  'vendor/vexflow.js', 'src/core/vexrender.js', 'src/core/jianpu.js',
+  'src/audio/tuner.js', 'src/audio/engine.js', 'src/data/instruments.js',
   'src/export/exporter.js', 'src/features/library.js', 'src/features/ear.js',
   'src/features/practice.js', 'src/app.js'
 ];

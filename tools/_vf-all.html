@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>VexFlow 后端全面验证</title>
+<style>
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; background: #fff; color: #111; margin: 12px; }
+  h2 { font-size: 13px; margin: 12px 0 4px; color: #23507a; }
+  .row { border: 1px solid #dde3ec; border-radius: 6px; padding: 4px 6px; margin-bottom: 6px; overflow: hidden; }
+  .meta { font-size: 11px; color: #667085; font-family: Consolas, monospace; }
+  #summary { font-family: Consolas, monospace; font-size: 12px; background: #f5f7fa; padding: 8px; border-radius: 6px; margin-bottom: 10px; white-space: pre-wrap; }
+  .bad { color: #b3261e; font-weight: 700; }
+  .ok { color: #0a7a3d; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="summary"></div>
+<div id="cases"></div>
+
+<script src="../src/core/util.js"></script>
+<script src="../src/core/theory.js"></script>
+<script src="../src/core/generator.js"></script>
+<script src="../src/core/renderer.js"></script>
+<script src="../vendor/vexflow.js"></script>
+<script src="../src/core/vexrender.js"></script>
+<script>
+(function () {
+  var TH = APP.theory, G = APP.generator, VR = APP.vexrender;
+  var out = [];
+  var okCount = 0, badCount = 0, totalMs = 0;
+  var casesEl = document.getElementById('cases');
+
+  function report(s) { out.push(s); }
+
+  report('VexFlow 可用: ' + VR.isAvailable() + '   版本: ' + VR.version());
+  report('Vex.Flow.Renderer 后端: SVG=' + (typeof Vex.Flow.Renderer.Backends.SVG !== 'undefined') +
+         '  CANVAS=' + (typeof Vex.Flow.Renderer.Backends.CANVAS !== 'undefined'));
+  if (!VR.isAvailable()) { document.getElementById('summary').textContent = out.join('\n'); document.title = 'VF-FAIL'; return; }
+
+  /* ---------- 用例定义 ---------- */
+  var CASES = [];
+
+  /* 1) 全部 15 个调号（大调）+ 低音谱 */
+  TH.allKeys().forEach(function (k, i) {
+    CASES.push({
+      name: '调号 ' + k.name + (k.mode === 'minor' ? '' : ''),
+      opts: { bars: 2, seed: 100 + i, key: k, durations: [1, 2, 0.5], useRests: true, useDotted: true,
+              range: { lowOct: k.mode === 'minor' ? 4 : 4, highOct: 4 }, mode: 'melody' }
+    });
+  });
+
+  /* 2) 全部拍号 */
+  G.TIME_SIGNATURES.forEach(function (t, i) {
+    CASES.push({
+      name: '拍号 ' + t.label,
+      opts: { bars: 2, seed: 200 + i, time: { num: t.num, den: t.den }, durations: [1, 0.5, 2, 0.25],
+              useRests: true, range: { lowOct: 4, highOct: 4 }, mode: 'melody' }
+    });
+  });
+
+  /* 3) 低音谱 + 加线（很低/很高） */
+  CASES.push({ name: '低音谱 + 加线', opts: { bars: 2, seed: 301, clef: 'bass', durations: [1, 2], useRests: false, range: { lowOct: 2, highOct: 3 }, mode: 'melody' } });
+  CASES.push({ name: '高音谱极高低音', opts: { bars: 2, seed: 302, clef: 'treble', durations: [1, 2], useRests: false, range: { lowOct: 5, highOct: 5 }, mode: 'melody' } });
+
+  /* 4) 十六分音符 + 符杠 */
+  CASES.push({ name: '十六分与符杠', opts: { bars: 2, seed: 401, durations: [0.25, 0.5, 1], useRests: true, time: { num: 4, den: 4 }, mode: 'melody' } });
+
+  /* 5) 附点与休止符 */
+  CASES.push({ name: '附点与休止', opts: { bars: 2, seed: 402, durations: [1, 2], useDotted: true, useRests: true, restRatio: 0.3, mode: 'melody' } });
+
+  /* 6) 切分（会产出延音线） */
+  CASES.push({ name: '切分/延音线', opts: { bars: 2, seed: 403, durations: [0.5, 1], useSyncopation: true, useRests: true, mode: 'melody' } });
+
+  /* 7) 纯节奏（单音） */
+  CASES.push({ name: '纯节奏单音', opts: { bars: 2, seed: 404, mode: 'rhythm', durations: [1, 2, 0.5], useRests: true } });
+
+  /* 8) 长谱：8 小节（测试自动分行） */
+  CASES.push({ name: '8 小节自动分行', opts: { bars: 8, seed: 501, durations: [1, 2, 0.5], useRests: true, mode: 'melody' } });
+  CASES.push({ name: '16 小节三行', opts: { bars: 16, seed: 502, durations: [1, 0.5], useRests: true, mode: 'melody', time: { num: 3, den: 4 } } });
+
+  /* 9) 全音符 / 二分（宽音符） */
+  CASES.push({ name: '全音符与二分', opts: { bars: 2, seed: 601, durations: [4, 2], useRests: false, mode: 'melody' } });
+
+  /* 10) 莫扎特式小调 */
+  CASES.push({ name: 'a 小调', opts: { bars: 2, seed: 701, key: { tonic: 9, mode: 'minor' }, durations: [1, 2, 0.5], useRests: true, mode: 'melody', range: { lowOct: 4, highOct: 5 } } });
+
+  /* ---------- 逐个渲染 ---------- */
+  CASES.forEach(function (c, idx) {
+    var t0 = performance.now();
+    var score, err = null, svg = null;
+    try {
+      score = G.generateScore(c.opts);
+      var box = document.createElement('div');
+      var r = VR.renderScoreInto(box, score, { width: 900, showSubText: 'solfa', showBarNumbers: true });
+      svg = r.svg;
+      if (r.error) err = r.error;
+    } catch (e) { err = e; }
+    var ms = performance.now() - t0;
+    totalMs += ms;
+
+    if (err || !svg) {
+      badCount++;
+      report('  [失败] ' + c.name + ' -> ' + (err ? err.message : '没有产出 SVG'));
+    } else {
+      okCount++;
+      /* 结构断言 */
+      var noteHeads = svg.querySelectorAll('.vf-stavenote, .vf-notehead, path[class*="notehead"]').length;
+      var staves = svg.querySelectorAll('.vf-stave, path[vf-stave]').length;
+      var beams = svg.querySelectorAll('.vf-beam').length;
+      var textCount = svg.querySelectorAll('text').length;
+      if (!svg.querySelectorAll('*').length) { badCount++; report('  [失败] ' + c.name + ' -> SVG 是空的'); }
+    }
+
+    /* 把渲染结果放进页面，便于截图肉眼检查 */
+    var row = document.createElement('div');
+    row.className = 'row';
+    var h = document.createElement('h2');
+    h.textContent = (idx + 1) + '. ' + c.name + '   ' + (err ? '✗ ' + err.message : '✓ ' + Math.round(ms) + 'ms');
+    if (err) h.className = 'bad';
+    row.appendChild(h);
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    if (score) {
+      var st = G.scoreStats(score);
+      meta.textContent = TH.keyName(score.key) + '  ' + score.time.num + '/' + score.time.den +
+        '  小节=' + score.bars.length + '  音符=' + st.noteCount + '  休止=' + st.restCount +
+        '  拍数校验=' + (st.badBars.length ? '✗ ' + JSON.stringify(st.badBars) : '✓');
+    }
+    row.appendChild(meta);
+    if (svg) row.appendChild(svg);
+    casesEl.appendChild(row);
+  });
+
+  report('');
+  report('================ 汇总 ================');
+  report('用例数: ' + CASES.length + '   成功: ' + okCount + '   失败: ' + badCount);
+  report('总耗时: ' + Math.round(totalMs) + 'ms   平均: ' + Math.round(totalMs / CASES.length) + 'ms/例');
+  report(badCount === 0 ? '全部通过 ✓' : '有失败用例 ✗');
+
+  document.getElementById('summary').textContent = out.join('\n');
+  document.title = badCount === 0 ? 'VF-ALL-PASS-' + CASES.length : 'VF-HAS-FAIL-' + badCount;
+})();
+</script>
+</body>
+</html>
