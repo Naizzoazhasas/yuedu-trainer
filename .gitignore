@@ -2,10 +2,12 @@
 node_modules/
 dist/
 tools/_out/
+upload/
 
 # 日志与临时文件
 *.log
 *.tmp
+*.lnk
 
 # 操作系统垃圾文件
 .DS_Store
