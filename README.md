@@ -289,7 +289,11 @@ node tools/publish-apk.js    # 发布到 GitHub Release（需要令牌）
   （`jdk\`、`build-tools\android-14\`、`platform\android-34\android.jar`），
   可用环境变量 `YUEDU_ANDROID_TOOLCHAIN` 指向别处；缺少时脚本会给出中文提示；
 - 首次构建会自动生成自签名密钥 `android/keystore/yuedu-release.jks`（口令写在脚本常量里，仅供自用分发）；
-- 包名 `com.yuedu.trainer`，版本 `1.1.0`，minSdk 21 / targetSdk 34，只申请麦克风权限、**不申请网络权限**。
+- 包名 `com.yuedu.trainer`，版本 `1.2.0`，minSdk 21 / targetSdk 34，只申请麦克风权限、**不申请网络权限**。
+- **手机上导出可用**：WebView 本身不会保存 `blob:` 下载，所以 APK 里带了一层文件保存桥接
+  （`android/src/com/yuedu/trainer/WebBridge.java` + `android/bridge/bridge.js`，分块传输）。
+  点「保存为图片 / 导出 MIDI / 导出 MusicXML」会写入 **相册/Pictures/读谱训练器**（图片）
+  或 **下载/Download/读谱训练器**（其它），并弹出「已保存到 …」提示；不需要存储权限。
 - 详细说明（安装、签名、改包名/版本号、手机上如何授权麦克风）见 [`android/README.md`](android/README.md)。
 
 完整说明（构建流程、签名与密钥、麦克风授权、改包名/版本号、常见问题）见 **[android/README.md](android/README.md)**。
