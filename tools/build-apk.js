@@ -15,9 +15,11 @@
  *   node tools/build-apk.js --tools <目录>  # 指定 _tools/android 位置
  *   node tools/build-apk.js --help
  *
- * 需要的工具链（默认在 <工作区>/_tools/android/ 下，可用 --tools 或环境变量 YUEDU_ANDROID_TOOLS 覆盖）：
- *   jdk/bin/{java,javac,keytool}.exe
- *   build-tools/{aapt2.exe,d8.bat,lib/d8.jar,zipalign.exe,apksigner.bat,lib/apksigner.jar,android.jar}
+ * 需要的工具链（默认在 <工作区>/_tools/android/ 下，可用 --tools 或环境变量 YUEDU_ANDROID_TOOLCHAIN 覆盖）：
+ *   JDK：        jdk/bin/{java,javac,keytool}.exe  或  jdk/jdk-17.x.x/bin/…
+ *   build-tools：build-tools/{aapt2.exe,zipalign.exe,d8.bat,apksigner.bat}
+ *                或  build-tools/<版本>/{…}（脚本会自动向下找一层）
+ *   android.jar：platform/android-34/android.jar、platforms/android-XX/android.jar 或 build-tools/android.jar
  *
  * 流程：
  *   1) 准备 assets：从 dist/site（优先，若已构建过）或项目根复制网页资源到 android/assets/
@@ -44,8 +46,8 @@ const { readZipFile, listZipEntries } = require('./zipreader');
 const APP = {
   packageName: 'com.yuedu.trainer',
   appName: '读谱训练器',
-  versionName: '1.1.0',
-  versionCode: 2,
+  versionName: '1.2.0',
+  versionCode: 3,
   minSdk: 21,      // Android 5.0
   targetSdk: 34    // Android 14
 };
@@ -84,18 +86,7 @@ const ALIGNED_APK = path.join(APK_TMP_DIR, 'yuedu-trainer-aligned.apk');
 const OUT_DIR = path.join(PROJECT_ROOT, 'dist', 'android');
 const OUT_APK = path.join(OUT_DIR, 'yuedu-trainer.apk');
 
-/* 各类中间产物的固定清单（用于启动时检查工具链是否齐全） */
-const TOOL_FILES = [
-  ['JDK java', 'jdk/bin/java.exe'],
-  ['JDK javac', 'jdk/bin/javac.exe'],
-  ['JDK keytool', 'jdk/bin/keytool.exe'],
-  ['aapt2', 'build-tools/aapt2.exe'],
-  ['d8 脚本', 'build-tools/d8.bat'],
-  ['d8 jar', 'build-tools/lib/d8.jar'],
-  ['zipalign', 'build-tools/zipalign.exe'],
-  ['apksigner 脚本', 'build-tools/apksigner.bat'],
-  ['apksigner jar', 'build-tools/lib/apksigner.jar']
-];
+/* 应用图标等资源用的固定路径见上方；工具链各组件由 makeToolchain() 自适应探测 */
 
 /* ==================== 小工具 ==================== */
 function fmtBytes(n) {
@@ -126,7 +117,9 @@ function mkdirp(p) { fs.mkdirSync(p, { recursive: true }); return p; }
 /* ==================== 参数解析 ==================== */
 function parseArgs(argv) {
   const opt = {
-    tools: process.env.YUEDU_ANDROID_TOOLS || path.resolve(PROJECT_ROOT, '..', '_tools', 'android'),
+    /* 工具链根目录：命令行 --tools > 环境变量 > 默认 <工作区>/_tools/android */
+    tools: process.env.YUEDU_ANDROID_TOOLCHAIN || process.env.YUEDU_ANDROID_TOOLS
+      || path.resolve(PROJECT_ROOT, '..', '_tools', 'android'),
     skipSign: false,
     help: false
   };
@@ -145,7 +138,8 @@ function parseArgs(argv) {
 function usage() {
   console.log([
     '用法：node tools/build-apk.js [选项]',
-    '  --tools <目录>   指定 Android 工具链根目录（默认 ../_tools/android）',
+    '  --tools <目录>   指定 Android 工具链根目录（默认 ../_tools/android，',
+    '                   也可用环境变量 YUEDU_ANDROID_TOOLCHAIN 指定）',
     '  --skip-sign      只产出未签名 APK（调试用，装不上安卓设备）',
     '  --help           显示本帮助',
     '',
@@ -154,49 +148,108 @@ function usage() {
 }
 
 /* ==================== 工具链定位 ==================== */
-function makeToolchain(toolsRoot) {
-  const tc = {
-    root: toolsRoot,
-    jdk: path.join(toolsRoot, 'jdk'),
-    buildTools: path.join(toolsRoot, 'build-tools')
-  };
-  tc.java = path.join(tc.jdk, 'bin', 'java.exe');
-  tc.javac = path.join(tc.jdk, 'bin', 'javac.exe');
-  tc.keytool = path.join(tc.jdk, 'bin', 'keytool.exe');
-  tc.aapt2 = path.join(tc.buildTools, 'aapt2.exe');
-  tc.d8Bat = path.join(tc.buildTools, 'd8.bat');
-  tc.d8Jar = path.join(tc.buildTools, 'lib', 'd8.jar');
-  tc.zipalign = path.join(tc.buildTools, 'zipalign.exe');
-  tc.apksignerBat = path.join(tc.buildTools, 'apksigner.bat');
-  tc.apksignerJar = path.join(tc.buildTools, 'lib', 'apksigner.jar');
-  /* android.jar：优先 build-tools 下（用户提供的工具链布局），
-     否则退回到 platforms/android-XX/android.jar（标准 SDK 布局） */
-  tc.androidJar = path.join(tc.buildTools, 'android.jar');
-  if (!exists(tc.androidJar)) {
-    const platforms = path.join(toolsRoot, 'platforms');
-    if (isDir(platforms)) {
-      const cands = fs.readdirSync(platforms)
-        .filter(function (n) { return /^android-\d+$/.test(n); })
-        .sort(function (a, b) { return parseInt(b.slice(8), 10) - parseInt(a.slice(8), 10); });
-      for (const c of cands) {
-        const p = path.join(platforms, c, 'android.jar');
-        if (exists(p)) { tc.androidJar = p; break; }
-      }
-    }
+/**
+ * 工具链目录在不同机器上层次不一样（有的解压在 jdk/bin，有的是 jdk/jdk-17.x.x/bin；
+ * build-tools 可能是 build-tools/，也可能是 build-tools/android-14/；
+ * android.jar 可能在 build-tools/ 下，也可能在 platform/android-34/ 下），
+ * 所以这里不写死路径，而是按「候选路径逐个探测 + 扫描一层子目录」来找。
+ * 找不到的角色会记进 tc.missing，由调用方给出中文提示。
+ */
+function findFirstFile(candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    if (exists(candidates[i])) return candidates[i];
   }
+  return null;
+}
+
+function subDirs(dir) {
+  if (!isDir(dir)) return [];
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(function (e) { return e.isDirectory(); })
+      .map(function (e) { return path.join(dir, e.name); });
+  } catch (e) { return []; }
+}
+
+function makeToolchain(root) {
+  const tc = { root: root, missing: [] };
+
+  /* --- JDK：java / javac / keytool --- */
+  const jdkCands = [];
+  jdkCands.push(path.join(root, 'jdk', 'bin', 'java.exe'));
+  subDirs(path.join(root, 'jdk')).forEach(function (d) { jdkCands.push(path.join(d, 'bin', 'java.exe')); });
+  subDirs(root).filter(function (d) { return /^jdk/i.test(path.basename(d)); }).forEach(function (d) {
+    jdkCands.push(path.join(d, 'bin', 'java.exe'));
+    subDirs(d).forEach(function (s) { jdkCands.push(path.join(s, 'bin', 'java.exe')); });
+  });
+  const javaExe = findFirstFile(jdkCands);
+  if (javaExe) {
+    tc.java = javaExe;
+    tc.jdk = path.dirname(path.dirname(javaExe));
+    tc.javac = path.join(tc.jdk, 'bin', 'javac.exe');
+    tc.keytool = path.join(tc.jdk, 'bin', 'keytool.exe');
+    if (!exists(tc.javac)) tc.missing.push('JDK 的 javac.exe（已找到 java，但同目录下没有 javac）');
+    if (!exists(tc.keytool)) tc.missing.push('JDK 的 keytool.exe（已找到 java，但同目录下没有 keytool）');
+  } else {
+    tc.jdk = null;
+    tc.missing.push('JDK（找不到 bin/java.exe）');
+  }
+
+  /* --- build-tools：aapt2 / d8 / zipalign / apksigner --- */
+  const btCands = [];
+  btCands.push(path.join(root, 'build-tools'));
+  subDirs(path.join(root, 'build-tools')).forEach(function (d) { btCands.push(d); });
+  subDirs(root).filter(function (d) { return /^build-tools/i.test(path.basename(d)); }).forEach(function (d) {
+    btCands.push(d);
+    subDirs(d).forEach(function (s) { btCands.push(s); });
+  });
+  const btDir = btCands.find(function (d) { return exists(path.join(d, 'aapt2.exe')); }) || null;
+  tc.buildTools = btDir;
+  if (btDir) {
+    tc.aapt2 = path.join(btDir, 'aapt2.exe');
+    tc.zipalign = path.join(btDir, 'zipalign.exe');
+    tc.d8Bat = path.join(btDir, 'd8.bat');
+    tc.d8Jar = path.join(btDir, 'lib', 'd8.jar');
+    tc.apksignerBat = path.join(btDir, 'apksigner.bat');
+    tc.apksignerJar = path.join(btDir, 'lib', 'apksigner.jar');
+    if (!exists(tc.zipalign)) tc.missing.push('build-tools 的 zipalign.exe');
+    if (!exists(tc.d8Bat) && !exists(tc.d8Jar)) tc.missing.push('build-tools 的 d8（d8.bat 与 lib/d8.jar 都找不到）');
+    if (!exists(tc.apksignerBat) && !exists(tc.apksignerJar)) tc.missing.push('build-tools 的 apksigner（apksigner.bat 与 lib/apksigner.jar 都找不到）');
+  } else {
+    tc.missing.push('Android build-tools（找不到 aapt2.exe）');
+  }
+
+  /* --- android.jar：平台 API，javac 的 bootclasspath --- */
+  const jarCands = [];
+  ['platform', 'platforms'].forEach(function (pd) {
+    const p = path.join(root, pd);
+    subDirs(p).forEach(function (d) { jarCands.push(path.join(d, 'android.jar')); });
+  });
+  if (btDir) jarCands.push(path.join(btDir, 'android.jar'));
+  subDirs(root).filter(function (d) { return /^platform/i.test(path.basename(d)); }).forEach(function (d) {
+    jarCands.push(path.join(d, 'android.jar'));
+    subDirs(d).forEach(function (s) { jarCands.push(path.join(s, 'android.jar')); });
+  });
+  tc.androidJar = findFirstFile(jarCands);
+  if (!tc.androidJar) tc.missing.push('android.jar（platform/android-*/android.jar 或 build-tools/android.jar）');
+
   return tc;
 }
 
-/** 检查工具链是否齐全，返回缺失项的中文描述数组 */
-function checkToolchain(tc) {
-  const missing = [];
-  TOOL_FILES.forEach(function (pair) {
-    const rel = pair[1];
-    const abs = path.join(tc.root, rel.split('/').join(path.sep));
-    if (!exists(abs)) missing.push(pair[0] + '（缺 ' + rel + '）');
-  });
-  if (!exists(tc.androidJar)) missing.push('android.jar（build-tools/android.jar 或 platforms/android-*/android.jar 都没有）');
-  return missing;
+/** 打印找到的工具链版本信息，便于排查 */
+function describeToolchain(tc) {
+  console.log('  工具链根目录：' + tc.root);
+  const rel = function (p) { return p ? toPosix(path.relative(tc.root, p)) : '（未找到）'; };
+  console.log('    JDK：        ' + (tc.jdk ? toPosix(path.relative(tc.root, tc.jdk)) : '（未找到）'));
+  console.log('    build-tools：' + (tc.buildTools ? toPosix(path.relative(tc.root, tc.buildTools)) : '（未找到）'));
+  console.log('    android.jar：' + rel(tc.androidJar));
+  if (tc.buildTools) {
+    const sp = path.join(tc.buildTools, 'source.properties');
+    if (exists(sp)) {
+      const t = fs.readFileSync(sp, 'utf8').match(/Pkg\.Revision\s*=\s*(.+)/);
+      if (t) console.log('    build-tools 版本：' + t[1].trim());
+    }
+  }
 }
 
 /* ==================== 子进程执行 ==================== */
@@ -246,8 +299,12 @@ function execTool(tc, bin, args, opts) {
   return out;
 }
 
-/** 批处理失败时退回「直接用 java 调 jar」，绕开 cmd.exe 对中文/空格路径的编码坑 */
+/** 批处理失败（或不存在）时退回「直接用 java 调 jar」，绕开 cmd.exe 对中文/空格路径的编码坑 */
 function execWithJavaFallback(tc, batPath, javaArgs, args, opts) {
+  if (!batPath || !exists(batPath)) {
+    console.log('  · 未找到 ' + (batPath ? path.basename(batPath) : '批处理脚本') + '，直接用 java 调用');
+    return execTool(tc, tc.java, javaArgs.concat(args), opts);
+  }
   const first = execTool(tc, batPath, args, opts);
   if (first.status === 0) return first;
   console.log('  [重试] ' + path.basename(batPath) + ' 失败（退出码 ' + first.status + '），'
@@ -340,8 +397,21 @@ function prepareAssets() {
     copied.push({ path: rel, bytes: buf.length, sha1: sha1(buf) });
   });
 
-  /* 关键文件强校验：少了任何一个，APK 装上去就是白屏/无五线谱 */
-  const critical = ['index.html', 'vendor/vexflow.js', 'src/app.js', 'src/styles.css'];
+  /* 导出保存桥接：手机 App 里 WebView 不能自己下载 blob，
+   * 由 MainActivity 在页面加载完后注入 assets/bridge.js 来解决。
+   * 它不属于网页资源（不在 index.html 引用里），所以单独复制。 */
+  const bridgeSrc = path.join(ANDROID_DIR, 'bridge', 'bridge.js');
+  if (exists(bridgeSrc)) {
+    const bridgeBuf = fs.readFileSync(bridgeSrc);
+    fs.writeFileSync(path.join(ASSETS_DIR, 'bridge.js'), bridgeBuf);
+    copied.push({ path: 'bridge.js', bytes: bridgeBuf.length, sha1: sha1(bridgeBuf) });
+    console.log('  [桥接] 已加入 assets/bridge.js（导出 PNG / MIDI / MusicXML 在手机上落盘用）');
+  } else {
+    console.log('  [警告] 找不到 android/bridge/bridge.js，手机上「保存为图片 / 导出」将无法落盘');
+  }
+
+  /* 关键文件强校验：少了任何一个，APK 装上去就是白屏/无五线谱/导不出文件 */
+  const critical = ['index.html', 'vendor/vexflow.js', 'src/app.js', 'src/styles.css', 'bridge.js'];
   const lostCritical = critical.filter(function (r) { return !exists(path.join(ASSETS_DIR, r.split('/').join(path.sep))); });
   if (lostCritical.length) {
     throw new Error('关键资源缺失，无法继续打包：' + lostCritical.join('、')
@@ -447,6 +517,7 @@ function compileJava(tc, rJava) {
      -encoding UTF-8：源码里有中文注释，不指定会按系统代码页解码从而报错；
      -Xlint:-options / -nowarn：JDK 17 会抱怨「source 8 已过时」，这里明确忽略，不让它影响构建。 */
   const args = [
+    '-J-Dfile.encoding=UTF-8', '-J-Dstdout.encoding=UTF-8',
     '-source', '8', '-target', '8',
     '-bootclasspath', tc.androidJar,
     '-encoding', 'UTF-8',
@@ -556,6 +627,7 @@ function ensureKeystore(tc) {
   console.log('  · 首次构建，生成自签名 keystore（alias=' + KEYSTORE_ALIAS + '，有效期 ' + KEY_VALIDITY_DAYS + ' 天）');
   mkdirp(KEYSTORE_DIR);
   const args = [
+    '-J-Dfile.encoding=UTF-8', '-J-Dstdout.encoding=UTF-8',
     '-genkeypair',
     '-keystore', KEYSTORE_PATH,
     '-alias', KEYSTORE_ALIAS,
@@ -655,25 +727,21 @@ function main() {
   if (opt.help) { usage(); return 0; }
 
   const tc = makeToolchain(path.resolve(opt.tools));
-  console.log('工具链根目录：' + tc.root);
+  describeToolchain(tc);
 
-  const missing = checkToolchain(tc);
-  if (missing.length) {
+  if (tc.missing.length) {
     console.log('\n[错误] Android 工具链尚未就绪，缺少以下组件：');
-    missing.forEach(function (m) { console.log('  ✗ ' + m); });
+    tc.missing.forEach(function (m) { console.log('  ✗ ' + m); });
     console.log('\n  怎么修：');
-    console.log('    1) 等待工具链下载/解压完成，然后用 Test-Path 确认上述文件都存在；');
-    console.log('    2) 或者用 --tools <目录> 指定已有的工具链根目录；');
-    console.log('    3) 期望的目录结构：');
-    console.log('         <工具链根>/jdk/bin/java.exe, javac.exe, keytool.exe');
-    console.log('         <工具链根>/build-tools/aapt2.exe, d8.bat, zipalign.exe, apksigner.bat, android.jar');
-    console.log('         <工具链根>/build-tools/lib/d8.jar, lib/apksigner.jar');
+    console.log('    1) 等待工具链下载/解压完成，再用 Test-Path 确认文件确实存在；');
+    console.log('    2) 或者用 --tools <目录>（或环境变量 YUEDU_ANDROID_TOOLCHAIN）指定工具链根目录；');
+    console.log('    3) 脚本会在根目录下自动搜索这些布局，任选其一即可：');
+    console.log('         JDK：        jdk/bin/java.exe  或  jdk/jdk-17.x.x/bin/java.exe');
+    console.log('         build-tools：build-tools/aapt2.exe  或  build-tools/<版本>/aapt2.exe');
+    console.log('         android.jar：platform/android-34/android.jar  或  platforms/android-*/android.jar');
     return 1;
   }
-  console.log('工具链检查：✓ 全部就位');
-  if (tc.androidJar && path.normalize(tc.androidJar) !== path.normalize(path.join(tc.buildTools, 'android.jar'))) {
-    console.log('  （android.jar 取自 ' + toPosix(path.relative(tc.root, tc.androidJar)) + '）');
-  }
+  console.log('  工具链检查：✓ 全部就位');
 
   const t0 = Date.now();
   try {

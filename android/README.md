@@ -55,23 +55,36 @@ android/
 - **JDK 17**（`java`、`javac`、`keytool`）；
 - **Android build-tools**（`aapt2`、`d8`、`zipalign`、`apksigner` 与 `android.jar`）。
 
-默认工具链位置是 `<工作区>/_tools/android/`：
+默认工具链位置是 `<工作区>/_tools/android/`。**脚本不写死层次，会自动向下找一层**，下面这种真实布局可以直接用
+（JDK 在版本子目录、build-tools 在 `android-14` 目录、`android.jar` 在 `platform/android-34/`）：
 
 ```
 _tools/android/
-├── jdk/bin/java.exe, javac.exe, keytool.exe
-└── build-tools/
-    ├── aapt2.exe, zipalign.exe, apksigner.bat, d8.bat, android.jar
-    └── lib/d8.jar, lib/apksigner.jar
+├── jdk/jdk-17.0.13+11/bin/java.exe, javac.exe, keytool.exe
+├── build-tools/android-14/
+│   ├── aapt2.exe, zipalign.exe, apksigner.bat, d8.bat
+│   └── lib/d8.jar, lib/apksigner.jar
+└── platform/android-34/android.jar
 ```
 
-工具链在别处时用 `--tools` 指定，或设环境变量 `YUEDU_ANDROID_TOOLS`：
+脚本会依次尝试这些候选位置，任选其一即可：
+
+| 组件 | 会去找的位置 |
+|---|---|
+| JDK | `jdk/bin/…`、`jdk/<任意子目录>/bin/…`、`<根>/jdk*/bin/…` |
+| build-tools | `build-tools/aapt2.exe`、`build-tools/<版本>/aapt2.exe`、`<根>/build-tools*/…` |
+| android.jar | `platform/android-*/android.jar`、`platforms/android-*/android.jar`、`build-tools/android.jar` |
+
+工具链在别处时用 `--tools` 指定，或设环境变量 `YUEDU_ANDROID_TOOLCHAIN`（也兼容 `YUEDU_ANDROID_TOOLS`）：
 
 ```powershell
 node tools/build-apk.js --tools "D:\sdk-lite"
+$env:YUEDU_ANDROID_TOOLCHAIN = "D:\sdk-lite"; node tools/build-apk.js
 ```
 
-构建脚本会先检查工具链，缺哪个文件会逐条列出来并告诉你期望的目录结构，不会中途莫名失败。
+构建脚本启动时会打印实际找到的 JDK / build-tools / android.jar 路径与 build-tools 版本号；
+缺哪个组件会逐条列出来并告诉你期望的目录结构，不会中途莫名失败。
+子进程会显式带上 `JAVA_HOME` 并把 JDK 的 `bin` 加进 `PATH`，因此**不需要**事先配置系统环境变量。
 
 ### 2. 一条命令打包
 
@@ -88,7 +101,7 @@ node tools/build-apk.js
 |---|---|---|
 | 1 | 准备网页资源到 `android/assets/` | 资源清单从 `index.html` 的 `<script src>` / `<link href>` **解析**得到（加模块不用改脚本）；有 `dist/site/` 就优先用它 |
 | 2 | 编译资源 | `aapt2 compile -o android/build/compiled <每个 res 文件>`，然后 `aapt2 link -o android/build/resources.ap_ -I android.jar --manifest android/AndroidManifest.xml --java android/build/gen --min-sdk-version 21 --target-sdk-version 34 --version-code 2 --version-name 1.1.0 <*.flat>` |
-| 3 | 编译 Java | `javac -source 8 -target 8 -bootclasspath android.jar -encoding UTF-8 -nowarn -Xlint:-options -d android/classes <源码 + R.java>` |
+| 3 | 编译 Java | `javac -J-Dfile.encoding=UTF-8 -source 8 -target 8 -bootclasspath android.jar -encoding UTF-8 -nowarn -Xlint:-options -d android/classes <源码 + R.java>` |
 | 4 | 转 dex | `d8 --lib android.jar --min-api 21 --release --output android/build/dexout <*.class>` |
 | 5 | 组装 APK | 纯 node ZIP 写入器：`resources.ap_` 里的条目 + `classes.dex` + `assets/**`，根目录必须是 `AndroidManifest.xml` / `classes.dex` / `resources.arsc` / `assets/…` |
 | 6 | 对齐 | `zipalign -p -f 4 <未对齐.apk> <对齐.apk>`（**必须先对齐再签名**） |

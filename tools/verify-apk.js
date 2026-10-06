@@ -30,13 +30,13 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 /* 期望值：必须与 android/AndroidManifest.xml 和 tools/build-apk.js 里的常量一致 */
 const EXPECT = {
   packageName: 'com.yuedu.trainer',
-  versionName: '1.1.0',
-  versionCode: 2,
+  versionName: '1.2.0',
+  versionCode: 3,
   minSdk: 21,
   targetSdk: 34,
   permissions: ['android.permission.RECORD_AUDIO'],
   requiredEntries: ['AndroidManifest.xml', 'classes.dex', 'resources.arsc',
-    'assets/index.html', 'assets/vendor/vexflow.js'],
+    'assets/index.html', 'assets/vendor/vexflow.js', 'assets/bridge.js'],
   maxBytes: 20 * 1024 * 1024
 };
 
@@ -51,7 +51,8 @@ function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch (e) { ret
 function parseArgs(argv) {
   const opt = {
     apk: path.join(PROJECT_ROOT, 'dist', 'android', 'yuedu-trainer.apk'),
-    tools: process.env.YUEDU_ANDROID_TOOLS || path.resolve(PROJECT_ROOT, '..', '_tools', 'android')
+    tools: process.env.YUEDU_ANDROID_TOOLCHAIN || process.env.YUEDU_ANDROID_TOOLS
+      || path.resolve(PROJECT_ROOT, '..', '_tools', 'android')
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -67,16 +68,67 @@ function parseArgs(argv) {
   return opt;
 }
 
+/* ---------------- 工具链定位（与 tools/build-apk.js 一样自适应查找） ---------------- */
+function findFirst(candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    if (exists(candidates[i])) return candidates[i];
+  }
+  return null;
+}
+function subDirs(dir) {
+  if (!isDir(dir)) return [];
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(function (e) { return e.isDirectory(); })
+      .map(function (e) { return path.join(dir, e.name); });
+  } catch (e) { return []; }
+}
+
+function resolveTools(root) {
+  const t = { root: root, missing: [] };
+
+  /* JDK：jdk/bin 或 jdk/jdk-17.x.x/bin 或 <root>/jdk-17.x.x/bin */
+  const jdkCands = [path.join(root, 'jdk', 'bin', 'java.exe')];
+  subDirs(path.join(root, 'jdk')).forEach(function (d) { jdkCands.push(path.join(d, 'bin', 'java.exe')); });
+  subDirs(root).filter(function (d) { return /^jdk/i.test(path.basename(d)); }).forEach(function (d) {
+    jdkCands.push(path.join(d, 'bin', 'java.exe'));
+    subDirs(d).forEach(function (s) { jdkCands.push(path.join(s, 'bin', 'java.exe')); });
+  });
+  t.javaExe = findFirst(jdkCands);
+  t.jdkDir = t.javaExe ? path.dirname(path.dirname(t.javaExe)) : null;
+
+  /* build-tools：build-tools/ 或 build-tools/<版本>/ */
+  const btCands = [path.join(root, 'build-tools')];
+  subDirs(path.join(root, 'build-tools')).forEach(function (d) { btCands.push(d); });
+  subDirs(root).filter(function (d) { return /^build-tools/i.test(path.basename(d)); }).forEach(function (d) {
+    btCands.push(d);
+    subDirs(d).forEach(function (s) { btCands.push(s); });
+  });
+  const btDir = btCands.find(function (d) { return exists(path.join(d, 'aapt2.exe')); }) || null;
+  if (btDir) {
+    t.aapt2 = path.join(btDir, 'aapt2.exe');
+    t.apksignerBat = path.join(btDir, 'apksigner.bat');
+    t.apksignerJar = path.join(btDir, 'lib', 'apksigner.jar');
+  }
+
+  if (!t.aapt2) t.missing.push('build-tools/aapt2.exe');
+  if (!t.apksignerBat && !(t.apksignerJar && t.javaExe)) {
+    t.missing.push('apksigner（apksigner.bat 或 lib/apksigner.jar + java 都没有）');
+  }
+  return t;
+}
+
 /* ---------------- 命令行工具执行（.bat 走 cmd /c） ---------------- */
-function childEnv(toolsRoot) {
+function childEnv(jdkDir) {
   const env = Object.assign({}, process.env);
-  const jdk = path.join(toolsRoot, 'jdk');
-  env.JAVA_HOME = jdk;
-  env.PATH = path.join(jdk, 'bin') + path.delimiter + (process.env.PATH || '');
+  if (jdkDir) {
+    env.JAVA_HOME = jdkDir;
+    env.PATH = path.join(jdkDir, 'bin') + path.delimiter + (process.env.PATH || '');
+  }
   return env;
 }
 
-function execTool(toolsRoot, bin, args) {
+function execTool(tools, bin, args) {
   let file = bin;
   let argv = args;
   if (/\.(bat|cmd)$/i.test(bin)) {
@@ -85,7 +137,7 @@ function execTool(toolsRoot, bin, args) {
   }
   const res = spawnSync(file, argv, {
     cwd: PROJECT_ROOT,
-    env: childEnv(toolsRoot),
+    env: childEnv(tools.jdkDir),
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true
@@ -148,19 +200,15 @@ function main() {
   console.log('=== 读谱训练器 · APK 校验 ===');
   console.log('  APK：' + opt.apk);
 
-  const toolsRoot = path.resolve(opt.tools);
-  const aapt2 = path.join(toolsRoot, 'build-tools', 'aapt2.exe');
-  const apksignerBat = path.join(toolsRoot, 'build-tools', 'apksigner.bat');
-  const javaExe = path.join(toolsRoot, 'jdk', 'bin', 'java.exe');
+  const tools = resolveTools(path.resolve(opt.tools));
 
   /* ---------- 工具链不齐全：优雅跳过（不算失败） ---------- */
-  const toolsMissing = [];
-  if (!exists(aapt2)) toolsMissing.push('build-tools/aapt2.exe');
-  if (!exists(apksignerBat) && !exists(javaExe)) toolsMissing.push('build-tools/apksigner.bat 与 jdk/bin/java.exe');
-  if (toolsMissing.length) {
+  if (tools.missing.length) {
     console.log('\n[跳过] 本机没有可用的 Android 工具链，跳过校验（这不是失败）：');
-    toolsMissing.forEach(function (t) { console.log('  - 缺少 ' + t); });
-    console.log('  原因：校验需要 aapt2 与 apksigner；工具链就绪后重新运行本脚本即可。');
+    tools.missing.forEach(function (t) { console.log('  - 缺少 ' + t); });
+    console.log('  工具链根目录：' + tools.root);
+    console.log('  原因：校验需要 aapt2 与 apksigner；工具链就绪后重新运行本脚本即可，');
+    console.log('       也可以用 --tools <目录> 或环境变量 YUEDU_ANDROID_TOOLCHAIN 指定位置。');
     console.log('\n=== 校验跳过（exit 0）===');
     return 0;
   }
@@ -195,11 +243,10 @@ function main() {
   console.log('\n--- 2. 签名（apksigner verify）---');
   const verifyArgs = ['verify', '--verbose', '--print-certs', opt.apk];
   let sig;
-  if (exists(apksignerBat)) {
-    sig = execTool(toolsRoot, apksignerBat, verifyArgs);
+  if (tools.apksignerBat && exists(tools.apksignerBat)) {
+    sig = execTool(tools, tools.apksignerBat, verifyArgs);
   } else {
-    const jar = path.join(toolsRoot, 'build-tools', 'lib', 'apksigner.jar');
-    sig = execTool(toolsRoot, javaExe, ['-jar', jar].concat(verifyArgs));
+    sig = execTool(tools, tools.javaExe, ['-jar', tools.apksignerJar].concat(verifyArgs));
   }
   const sigText = (sig.stdout + sig.stderr).trim();
   if (sigText) sigText.split(/\r?\n/).forEach(function (l) { console.log('    | ' + l); });
@@ -209,7 +256,7 @@ function main() {
 
   /* ---------- 3) badging ---------- */
   console.log('\n--- 3. 清单信息（aapt2 dump badging）---');
-  const dump = execTool(toolsRoot, aapt2, ['dump', 'badging', opt.apk]);
+  const dump = execTool(tools, tools.aapt2, ['dump', 'badging', opt.apk]);
   if (dump.status !== 0) {
     report.bad('aapt2 dump badging 执行失败（退出码 ' + dump.status + '）'
       + (dump.stderr ? '：' + dump.stderr.trim().split(/\r?\n/)[0] : ''));

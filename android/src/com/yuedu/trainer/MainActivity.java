@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -18,6 +19,9 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
+
+import java.io.InputStream;
 
 /**
  * 读谱训练器 —— Android 外壳（一个最小 WebView 容器）。
@@ -47,6 +51,12 @@ public class MainActivity extends Activity {
     private static final String THEME_COLOR = "#0f1420";
 
     private WebView mWebView;
+
+    /** 网页 → 原生的文件保存桥接（导出 PNG / MIDI / MusicXML 靠它） */
+    private WebBridge mBridge;
+
+    /** bridge.js 是否已注入（只注一次） */
+    private boolean mBridgeInjected;
 
     /**
      * 网页通过 getUserMedia() 发起的麦克风请求。
@@ -81,6 +91,7 @@ public class MainActivity extends Activity {
         setContentView(mWebView);
 
         configureWebSettings(mWebView.getSettings());
+        installJsBridge();
         installWebViewClient();
         installWebChromeClient();
 
@@ -94,6 +105,85 @@ public class MainActivity extends Activity {
         } else {
             // 旋转/重建后恢复历史（本应用已用 configChanges 尽量避免重建，这里只是兜底）
             mWebView.restoreState(savedInstanceState);
+        }
+    }
+
+    /* ==================== JS 桥接：导出文件 / 提示 ==================== */
+
+    /**
+     * 注入两样东西：
+     * <ol>
+     *   <li>{@code window.__yueduNative}：保存文件的接口（分块：startSave / appendSave / finishSave）；
+     *       没有它，「保存为图片」「导出 MIDI / MusicXML」在手机上点了会毫无反应；</li>
+     *   <li>{@code window.__yueduToast}：让网页把提示信息交给原生 Toast 显示，
+     *       比网页自己的 toast 更醒目（存到相册/下载目录这类信息需要用户看见）。</li>
+     * </ol>
+     * 桥接脚本本身随 APK 打包在 assets/bridge.js，由 onPageFinished 注入，
+     * 这样它是冷启动第一帧之前就已存在，网页里的点击拦截不会漏掉。
+     */
+    private void installJsBridge() {
+        mBridge = new WebBridge(this);
+        mWebView.addJavascriptInterface(mBridge, WebBridge.scriptName());
+
+        // 原生 Toast 出口：网页调用 window.__yueduToast('...')
+        mWebView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void show(final String msg) {
+                if (msg == null) {
+                    return;
+                }
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        }, "__yueduToastNative");
+    }
+
+    /** 页面加载完成后注入桥接脚本；只注入一次 */
+    private void injectBridgeScript() {
+        if (mBridgeInjected) {
+            return;
+        }
+        mBridgeInjected = true;
+        try {
+            String js = readAsset("bridge.js");
+            if (js == null) {
+                Log.w(TAG, "assets/bridge.js 不存在，导出功能在手机上可能不可用");
+                return;
+            }
+            mWebView.evaluateJavascript(js, null);
+            // 让网页优先用原生 Toast（更醒目），失败时网页会退回自己的提示
+            mWebView.evaluateJavascript(
+                    "(function(){try{window.__yueduToast=function(m){try{__yueduToastNative.show(String(m));}"
+                            + "catch(e){}};}catch(e){}})();", null);
+            Log.i(TAG, "已注入 bridge.js（导出保存桥接）");
+        } catch (Throwable t) {
+            Log.w(TAG, "注入 bridge.js 失败：" + t);
+        }
+    }
+
+    /** 读取 assets 下的文本资源 */
+    private String readAsset(String name) {
+        InputStream in = null;
+        try {
+            in = getAssets().open(name);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bos.write(buf, 0, n);
+            }
+            return new String(bos.toByteArray(), "UTF-8");
+        } catch (Throwable t) {
+            Log.w(TAG, "读取 assets/" + name + " 失败：" + t);
+            return null;
+        } finally {
+            if (in != null) {
+                try { in.close(); } catch (Throwable ignored) { }
+            }
         }
     }
 
@@ -147,6 +237,16 @@ public class MainActivity extends Activity {
 
     private void installWebViewClient() {
         mWebView.setWebViewClient(new WebViewClient() {
+
+            /**
+             * 页面加载完成后注入导出保存桥接（bridge.js）。
+             * 放在这里而不是 onCreate 里，是因为 evaluateJavascript 必须在页面文档存在之后调用。
+             */
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                injectBridgeScript();
+            }
 
             /** 返回 true 表示「已由我们自己处理，WebView 不要加载」 */
             @Override

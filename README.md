@@ -265,14 +265,31 @@ MIT License，作者 `yuedu-trainer contributors`，年份 2026。详见 [LICENS
 除了网页版，本项目还可以打包成**可以装在 Android 手机上的 APK**（WebView 外壳 + 打包进 APK 的离线网页资源），
 安装后完全离线可用，调音器也能正常用麦克风。
 
+### 直接下载（推荐给普通用户）
+
+手机浏览器打开下面的链接即可下载安装（Release 资产，始终指向最新版）：
+
+**<https://github.com/Naizzoazhasas/yuedu-trainer/releases/latest/download/yuedu-trainer.apk>**
+
+安装时系统若提示「未知来源 / 禁止安装未知应用」，允许一次即可。
+也可以把 APK 传到手机上再点开安装，或连数据线用 `adb install -r yuedu-trainer.apk`。
+
+> 如果该链接提示 404，说明 APK 还没发布到 Release（发布命令见文末 `tools/publish-apk.js`）。
+
+### 自己构建
+
 ```powershell
 node tools/build-apk.js      # 产出 dist/android/yuedu-trainer.apk
 node tools/verify-apk.js     # 校验包名/版本/权限/签名/内容/体积
+node tools/publish-apk.js    # 发布到 GitHub Release（需要令牌）
 ```
 
 - 不用 Gradle、不用 Android Studio：纯 node 脚本调用 JDK 与 Android build-tools 命令行；
+- 构建工具链是**外部依赖**，脚本默认从 `D:\文档\deepseek-harness\default-workspace\_tools\android` 读取
+  （`jdk\`、`build-tools\android-14\`、`platform\android-34\android.jar`），
+  可用环境变量 `YUEDU_ANDROID_TOOLCHAIN` 指向别处；缺少时脚本会给出中文提示；
 - 首次构建会自动生成自签名密钥 `android/keystore/yuedu-release.jks`（口令写在脚本常量里，仅供自用分发）；
-- 安装：`adb install -r dist\android\yuedu-trainer.apk`，或把 APK 传到手机后在「未知来源」里允许安装；
 - 包名 `com.yuedu.trainer`，版本 `1.1.0`，minSdk 21 / targetSdk 34，只申请麦克风权限、**不申请网络权限**。
+- 详细说明（安装、签名、改包名/版本号、手机上如何授权麦克风）见 [`android/README.md`](android/README.md)。
 
 完整说明（构建流程、签名与密钥、麦克风授权、改包名/版本号、常见问题）见 **[android/README.md](android/README.md)**。
