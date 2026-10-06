@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用名称等字符串资源（桌面图标下面显示的名字取自这里） -->
+<resources>
+    <string name="app_name">读谱训练器</string>
+</resources>

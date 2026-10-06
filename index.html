@@ -67,8 +67,12 @@
               <select id="gen-time"></select>
             </div>
             <div class="field">
-              <span class="label">速度 <span class="hint" id="gen-tempo-val">60</span> PBM</span>
-              <input type="range" id="gen-tempo" min="30" max="220" step="1" value="60">
+              <span class="label">速度 PBM <span class="hint" id="gen-tempo-word"></span></span>
+              <div class="tempo-row">
+                <input type="number" id="gen-tempo-num" min="30" max="240" step="1" value="60" inputmode="numeric" aria-label="速度数值输入">
+                <input type="range" id="gen-tempo" min="30" max="240" step="1" value="60" aria-label="速度滑块">
+              </div>
+              <div class="chip-row tempo-presets" id="gen-tempo-presets"></div>
             </div>
             <div class="field">
               <span class="label">调号</span>

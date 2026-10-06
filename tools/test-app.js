@@ -265,6 +265,65 @@ tryDo('速度 +5', function () { doc.querySelector('#gen-faster').dispatch('clic
 tryDo('速度 -5', function () { doc.querySelector('#gen-slower').dispatch('click'); });
 ok('控件操作全部无异常', opsErr.length === 0, opsErr.join(' ; '));
 
+/* ---------- 6b. 速度（PBM）直接输入 ---------- */
+console.log('6b. 速度数字输入');
+ok('速度数字框存在', !!doc.querySelector('#gen-tempo-num'));
+ok('速度数字框有输入模式提示（手机弹出数字键盘）',
+  (doc.querySelector('#gen-tempo-num') || {}).getAttribute
+    ? doc.querySelector('#gen-tempo-num').getAttribute('inputmode') === 'numeric'
+    : false);
+
+tryDo('数字框直接输入 138 并确认', function () {
+  var n = doc.querySelector('#gen-tempo-num');
+  n.value = '138';
+  n.dispatch('change');
+});
+ok('直接输入 138 PBM 后乐段速度变成 138', APP.app.getScore().tempo === 138,
+  'tempo=' + APP.app.getScore().tempo);
+ok('滑块同步到 138', doc.querySelector('#gen-tempo').value === '138',
+  'slider=' + doc.querySelector('#gen-tempo').value);
+
+tryDo('数字框输入超范围 999', function () {
+  var n = doc.querySelector('#gen-tempo-num');
+  n.value = '999';
+  n.dispatch('change');
+});
+ok('超范围输入被夹到 240', APP.app.getScore().tempo === 240,
+  'tempo=' + APP.app.getScore().tempo + ' input=' + doc.querySelector('#gen-tempo-num').value);
+ok('数字框回显夹取后的值', doc.querySelector('#gen-tempo-num').value === '240');
+
+tryDo('数字框输入非数字 abc', function () {
+  var n = doc.querySelector('#gen-tempo-num');
+  n.value = 'abc';
+  n.dispatch('change');
+});
+ok('非数字输入不改变速度', APP.app.getScore().tempo === 240, 'tempo=' + APP.app.getScore().tempo);
+ok('非数字输入后数字框还原成当前速度', doc.querySelector('#gen-tempo-num').value === '240');
+
+tryDo('点常用速度芯片 100', function () {
+  var chips = doc.querySelectorAll('#gen-tempo-presets .chip');
+  chips.forEach(function (c) { if (c.textContent.trim() === '100') c.dispatch('click'); });
+});
+ok('常用速度芯片能设到 100 PBM', APP.app.getScore().tempo === 100, 'tempo=' + APP.app.getScore().tempo);
+ok('速度术语随速度更新（100 → Andante）', (function () {
+  var w = doc.querySelector('#gen-tempo-word');
+  return !!w && w.textContent.indexOf('100') >= 0 && w.textContent.indexOf('Andante') >= 0;
+})(), (doc.querySelector('#gen-tempo-word') || {}).textContent);
+
+tryDo('数字框方向键 +1', function () {
+  var n = doc.querySelector('#gen-tempo-num');
+  n.value = '100';
+  n.dispatch('keydown', { key: 'ArrowUp', preventDefault: function () {} });
+});
+ok('方向键 +1 生效', APP.app.state.tempo === 101, 'tempo=' + APP.app.state.tempo);
+
+tryDo('速度入队到播放中的 transport（无音频环境应安全）', function () {
+  APP.app.stopPlayback();
+  doc.querySelector('#gen-tempo-num').value = '76';
+  doc.querySelector('#gen-tempo-num').dispatch('change');
+});
+ok('再次输入 76 也生效', APP.app.state.tempo === 76, 'tempo=' + APP.app.state.tempo);
+
 /* ---------- 7. 快捷键 ---------- */
 console.log('7. 快捷键');
 var keyErr = null;

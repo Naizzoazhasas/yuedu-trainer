@@ -13,3 +13,9 @@ upload/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Android 打包产物与中间件（由 node tools/build-apk.js 生成）
+android/assets/
+android/keystore/
+android/build/
+android/classes/

@@ -360,20 +360,50 @@
     }
   }
 
-  function nudgeTempo(delta) {
-    var next = U.clamp(state.tempo + delta, 30, 240);
-    state.tempo = next;
+  /* ---------------- 速度（PBM）----------------
+   * 用户可以拖滑块，也可以**直接在数字框里输入**。
+   * 两个控件共用 applyTempo 保持同步，并显示对应的意大利术语。 */
+
+  /* BPM -> 意大利术语（教学上很有用） */
+  function tempoWord(bpm) {
+    if (bpm < 40) return '庄板 Grave';
+    if (bpm < 60) return '广板 Largo';
+    if (bpm < 66) return '慢板 Larghetto';
+    if (bpm < 76) return '柔板 Adagio';
+    if (bpm < 108) return '行板 Andante';
+    if (bpm < 120) return '小行板 Moderato';
+    if (bpm < 156) return '快板 Allegro';
+    if (bpm < 176) return '活泼的快板 Vivace';
+    if (bpm < 200) return '急板 Presto';
+    return '最急板 Prestissimo';
+  }
+
+  /* 统一的设速入口：同步 state / 滑块 / 数字框 / 术语 / 播放中的节拍器 */
+  function applyTempo(bpm, opts) {
+    opts = opts || {};
+    bpm = Math.round(U.clamp(Number(bpm) || 60, 30, 240));
+    state.tempo = bpm;
+
     var slider = U.query('#gen-tempo');
-    if (slider) slider.value = String(next);
-    var v = U.query('#gen-tempo-val');
-    if (v) v.textContent = String(next);
+    if (slider) slider.value = String(bpm);
+    var num = U.query('#gen-tempo-num');
+    if (num) num.value = String(bpm);
+
+    var w = U.query('#gen-tempo-word');
+    if (w) w.textContent = bpm + ' · ' + tempoWord(bpm);
     var ct = U.query('#gen-curtempo');
-    if (ct) ct.textContent = next + ' PBM';
+    if (ct) ct.textContent = bpm + ' PBM';
+
     if (transport && transport.setTempo) {
-      try { transport.setTempo(next); } catch (e) { /* 忽略 */ }
+      try { transport.setTempo(bpm); } catch (e) { /* 忽略 */ }
     }
-    try { if (metro && metro.isRunning && metro.isRunning()) metro.setTempo(next); } catch (e) { /* 忽略 */ }
-    saveState();
+    try { if (metro && metro.isRunning && metro.isRunning()) metro.setTempo(bpm); } catch (e) { /* 忽略 */ }
+    if (!opts.quiet) saveState();
+    return bpm;
+  }
+
+  function nudgeTempo(delta) {
+    applyTempo(state.tempo + delta);
   }
 
   /* ---------------- 侧栏控件装配 ---------------- */
@@ -483,8 +513,8 @@
     function setChk(sel, v) { var e = U.query(sel); if (e) e.checked = !!v; }
     setVal('#gen-mode', state.mode);
     setVal('#gen-bars', state.bars);
-    setVal('#gen-tempo', state.tempo);
-    var tv = U.query('#gen-tempo-val'); if (tv) tv.textContent = String(state.tempo);
+    /* 速度：滑块、数字框、术语统一由 applyTempo 同步 */
+    applyTempo(state.tempo, { quiet: true });
     setVal('#gen-time', state.time.num + '/' + state.time.den);
     setVal('#gen-key', state.keyId);
     setVal('#gen-clef', state.clef);
@@ -563,11 +593,62 @@
       state.bars = U.clamp(parseInt(e.target.value, 10) || 4, 1, 32);
       e.target.value = String(state.bars); saveState(); regenerate();
     });
+    /* 速度：滑块「拖动时」即时预览，「松手」重新生成；
+     * 数字框支持直接键入，「回车 / 失焦」才生效（避免输到一半就被夹到边界）。 */
     on('#gen-tempo', 'input', function (e) {
-      state.tempo = parseInt(e.target.value, 10) || 60;
-      var v = U.query('#gen-tempo-val'); if (v) v.textContent = String(state.tempo);
+      applyTempo(e.target.value, { quiet: true });
     });
-    on('#gen-tempo', 'change', function () { saveState(); regenerate(); });
+    on('#gen-tempo', 'change', function (e) {
+      applyTempo(e.target.value);
+      regenerate();
+    });
+    var tempoNum = U.query('#gen-tempo-num');
+    if (tempoNum) {
+      tempoNum.addEventListener('input', function () {
+        /* 输入过程中只做轻量同步，不动 state（可能是空串或半截数字） */
+        var raw = parseInt(tempoNum.value, 10);
+        if (isFinite(raw) && raw >= 30 && raw <= 240) {
+          var slider = U.query('#gen-tempo');
+          if (slider) slider.value = String(raw);
+        }
+      });
+      tempoNum.addEventListener('change', function () {
+        var raw = parseInt(tempoNum.value, 10);
+        if (!isFinite(raw)) {
+          tempoNum.value = String(state.tempo);      // 非法输入就还原
+          U.toast('速度请输入 30–240 之间的整数', 'warn');
+          return;
+        }
+        var bpm = applyTempo(raw);
+        if (bpm !== raw) {
+          U.toast('已限制到 ' + bpm + ' PBM（允许范围 30–240）', 'warn');
+        }
+        regenerate();
+      });
+      tempoNum.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); tempoNum.dispatchEvent(new Event('change')); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); applyTempo(state.tempo + 1); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); applyTempo(state.tempo - 1); }
+      });
+    }
+    /* 常用速度一键设定 */
+    var presetHost = U.query('#gen-tempo-presets');
+    if (presetHost) {
+      U.clear(presetHost);
+      [40, 60, 72, 88, 100, 120, 144, 180].forEach(function (bpm) {
+        presetHost.appendChild(U.el('button', {
+          class: 'chip small', type: 'button', text: String(bpm),
+          title: bpm + ' PBM · ' + tempoWord(bpm),
+          on: {
+            click: function () {
+              applyTempo(bpm);
+              syncControls();
+              regenerate();
+            }
+          }
+        }));
+      });
+    }
     on('#gen-clef', 'change', function (e) { state.clef = e.target.value; saveState(); regenerate(); });
     on('#gen-dotted', 'change', function (e) { state.useDotted = e.target.checked; saveState(); syncControls(); regenerate(); });
     on('#gen-rests', 'change', function (e) { state.useRests = e.target.checked; saveState(); regenerate(); });
@@ -650,10 +731,16 @@
     }
 
     var tempoField = U.el('div', { class: 'field' },
-      U.el('span', { class: 'label' }, '速度 ', U.el('b', { id: 'metro-tempo-val', text: String(cfg.tempo) }), ' PBM'),
-      U.el('input', {
-        type: 'range', id: 'metro-tempo', min: '20', max: '240', step: '1', value: String(cfg.tempo)
-      }));
+      U.el('span', { class: 'label' }, '速度 PBM ', U.el('span', { class: 'hint', id: 'metro-tempo-word' })),
+      U.el('div', { class: 'tempo-row' },
+        U.el('input', {
+          type: 'number', id: 'metro-tempo-num', min: '20', max: '240', step: '1',
+          value: String(cfg.tempo), inputmode: 'numeric', 'aria-label': '节拍器速度数值输入'
+        }),
+        U.el('input', {
+          type: 'range', id: 'metro-tempo', min: '20', max: '240', step: '1',
+          value: String(cfg.tempo), 'aria-label': '节拍器速度滑块'
+        })));
 
     var timeSel = U.el('select', { id: 'metro-time' });
     G.TIME_SIGNATURES.forEach(function (t) {
@@ -672,6 +759,22 @@
 
     var startBtn = U.el('button', { class: 'btn primary lg', id: 'metro-toggle', text: '\u25B6 开始' });
 
+    /* 节拍器自己的设速入口（与生成页的速度独立，但会写回 state 供下次生成使用） */
+    function setMetroTempo(bpm, quiet) {
+      bpm = Math.round(U.clamp(Number(bpm) || 60, 20, 240));
+      cfg.tempo = bpm;
+      state.tempo = bpm;
+      var s = U.query('#metro-tempo'); if (s) s.value = String(bpm);
+      var n = U.query('#metro-tempo-num'); if (n) n.value = String(bpm);
+      var w = U.query('#metro-tempo-word');
+      if (w) w.textContent = bpm + ' · ' + tempoWord(bpm);
+      if (metro && metro.isRunning && metro.isRunning()) {
+        try { metro.setTempo(bpm); } catch (e) { /* 忽略 */ }
+      }
+      if (!quiet) saveState();
+      return bpm;
+    }
+
     var tapTimes = [];
     var tapBtn = U.el('button', {
       class: 'btn', id: 'metro-tap', text: '\u30BF 敲拍测速',
@@ -684,14 +787,7 @@
             var gaps = [];
             for (var k = 1; k < tapTimes.length; k++) gaps.push(tapTimes[k] - tapTimes[k - 1]);
             var avg = gaps.reduce(function (a, b) { return a + b; }, 0) / gaps.length;
-            var bpm = Math.round(60000 / avg);
-            bpm = U.clamp(bpm, 20, 240);
-            cfg.tempo = bpm;
-            var s = U.query('#metro-tempo'); if (s) s.value = String(bpm);
-            var v = U.query('#metro-tempo-val'); if (v) v.textContent = String(bpm);
-            state.tempo = bpm;
-            if (metro && metro.isRunning && metro.isRunning()) metro.setTempo(bpm);
-            saveState();
+            var bpm = setMetroTempo(Math.round(60000 / avg));
             U.toast('测得 ' + bpm + ' PBM', 'ok');
           }
         }
@@ -752,13 +848,32 @@
     var tempoSlider = U.query('#metro-tempo');
     if (tempoSlider) {
       tempoSlider.addEventListener('input', function () {
-        cfg.tempo = parseInt(tempoSlider.value, 10);
-        var v = U.query('#metro-tempo-val'); if (v) v.textContent = String(cfg.tempo);
-        state.tempo = cfg.tempo;
-        if (metro && metro.isRunning && metro.isRunning()) { try { metro.setTempo(cfg.tempo); } catch (e) { /* 忽略 */ } }
-        saveState();
+        setMetroTempo(tempoSlider.value);
       });
     }
+    var tempoNum = U.query('#metro-tempo-num');
+    if (tempoNum) {
+      tempoNum.addEventListener('input', function () {
+        var raw = parseInt(tempoNum.value, 10);
+        if (isFinite(raw) && raw >= 20 && raw <= 240 && tempoSlider) tempoSlider.value = String(raw);
+      });
+      tempoNum.addEventListener('change', function () {
+        var raw = parseInt(tempoNum.value, 10);
+        if (!isFinite(raw)) {
+          tempoNum.value = String(cfg.tempo);
+          U.toast('速度请输入 20–240 之间的整数', 'warn');
+          return;
+        }
+        var bpm = setMetroTempo(raw);
+        if (bpm !== raw) U.toast('已限制到 ' + bpm + ' PBM（允许范围 20–240）', 'warn');
+      });
+      tempoNum.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); tempoNum.dispatchEvent(new Event('change')); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setMetroTempo(cfg.tempo + 1); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); setMetroTempo(cfg.tempo - 1); }
+      });
+    }
+    setMetroTempo(cfg.tempo, true);
     timeSel.addEventListener('change', function () {
       var p = timeSel.value.split('/');
       cfg.num = parseInt(p[0], 10); cfg.den = parseInt(p[1], 10);

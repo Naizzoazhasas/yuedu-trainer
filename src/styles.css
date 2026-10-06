@@ -300,6 +300,36 @@ label.check:hover { color: var(--ink); }
 .jp-bar.playing { background: rgba(255, 138, 76, .16); border-radius: 6px; }
 .jp-render-err { color: #b91c1c; font-size: 13px; }
 
+/* ---------- 速度（PBM）输入：数字框 + 滑块 + 常用值 ---------- */
+
+.tempo-row {
+  display: flex; align-items: center; gap: 8px;
+}
+
+.tempo-row input[type="number"] {
+  flex: 0 0 68px; width: 68px;
+  text-align: center; font-family: var(--mono);
+  font-size: 15px; font-weight: 700;
+  padding: 6px 4px;
+  -moz-appearance: textfield;
+}
+.tempo-row input[type="number"]::-webkit-outer-spin-button,
+.tempo-row input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.tempo-row input[type="range"] { flex: 1 1 auto; min-width: 90px; }
+
+.chip.small { padding: 3px 9px; font-size: 11.5px; }
+.tempo-presets { margin-top: 2px; }
+
+/* 触摸设备上把控件做大一点，方便手指操作（手机/PAD） */
+@media (pointer: coarse) {
+  input[type="range"] { height: 28px; }
+  .tempo-row input[type="number"] { flex-basis: 78px; width: 78px; font-size: 16px; }
+  .chip { padding: 8px 14px; }
+  .btn { padding: 10px 16px; }
+}
+
 /* ---------- 生成 / 练习 主界面 ---------- */
 
 .gen-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }

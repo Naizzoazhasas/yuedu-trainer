@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  读谱训练器 · Android 应用清单
+
+  说明：
+  - 本应用是「纯前端离线网页应用」的 WebView 外壳，网页资源全部放在 assets/ 目录里，
+    运行时用 file:///android_asset/index.html 加载，因此 **不需要任何网络权限**。
+  - 唯一敏感权限是 RECORD_AUDIO：调音器要用 getUserMedia 采集麦克风。
+  - 包名/版本号在这里维护；tools/build-apk.js 会把同样的值传给 aapt2
+    （--version-code / --version-name / --min-sdk-version / --target-sdk-version），两者必须一致。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.yuedu.trainer"
+    android:versionCode="2"
+    android:versionName="1.1.0">
+
+    <!-- 调音器必需：网页 getUserMedia({audio:true}) 需要系统级录音权限 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 音频路由（扬声器/听筒切换）用得到，属于普通权限，不会弹窗 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- 没有麦克风的设备（少数模拟器/平板）也允许安装，只是调音器不可用 -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- minSdk 21 = Android 5.0；targetSdk 34 = Android 14 -->
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/icon"
+        android:allowBackup="true"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.Black.NoTitleBar">
+
+        <activity
+            android:name="com.yuedu.trainer.MainActivity"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Black.NoTitleBar"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale">
+            <!--
+              configChanges 的意义：旋转屏幕/切换深色模式时不重建 Activity，
+              否则 WebView 会被销毁重建 —— 正在播放的节拍器会中断、谱面状态会丢失。
+              本应用用 CSS 自适应布局，旋转后由网页自己重排即可。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
