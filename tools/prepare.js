@@ -307,15 +307,9 @@ fs.copyFileSync(path.join(TOOLS, 'make-shortcut.js'), asciiScript);
 
 var SHORTCUTS = [
   {
-    name: '读谱训练器（桌面应用）.lnk',
-    cmd: path.join(ROOT, '读谱训练器.cmd'),
-    icon: path.join(ROOT, 'icons', 'yuedu.ico'),
-    desc: '以独立应用窗口打开（无地址栏，调音器可用）——推荐日常使用'
-  },
-  {
     name: '读谱训练器（本地服务）.lnk',
     cmd: path.join(ROOT, 'start-server.cmd'),
-    desc: '启动本地服务器并打开浏览器（调音器可用）'
+    desc: '启动本地服务器并打开浏览器（调音器可用）——开发用'
   },
   {
     name: '读谱训练器（离线版）.lnk',

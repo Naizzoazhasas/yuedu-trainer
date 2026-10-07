@@ -21,18 +21,24 @@ $ErrorActionPreference = 'Stop'
 # ---------- 定位应用文件 ----------
 if (-not $AppFile -or $AppFile.Length -eq 0) {
     $candidates = @(
+        $env:YDT_APP_FILE,
         (Join-Path $PSScriptRoot 'dist\yuedu-trainer.html'),
         (Join-Path $PSScriptRoot 'yuedu-trainer.html'),
-        (Join-Path (Split-Path $PSScriptRoot -Parent) 'dist\yuedu-trainer.html')
+        (Join-Path $PSScriptRoot 'YueDuTrainer.html'),
+        (Join-Path $PSScriptRoot '读谱训练器.html'),
+        (Join-Path (Split-Path $PSScriptRoot -Parent) 'dist\yuedu-trainer.html'),
+        (Join-Path (Split-Path $PSScriptRoot -Parent) 'yuedu-trainer.html'),
+        (Join-Path (Split-Path $PSScriptRoot -Parent) 'YueDuTrainer.html'),
+        (Join-Path (Split-Path $PSScriptRoot -Parent) '读谱训练器.html')
     )
     foreach ($c in $candidates) {
-        if (Test-Path -LiteralPath $c) { $AppFile = $c; break }
+        if ($c -and (Test-Path -LiteralPath $c)) { $AppFile = $c; break }
     }
 }
 if (-not $AppFile -or -not (Test-Path -LiteralPath $AppFile)) {
     Write-Host ""
-    Write-Host "  [错误] 找不到应用文件 dist\yuedu-trainer.html" -ForegroundColor Red
-    Write-Host "         请先运行  node tools\build.js  生成它。" -ForegroundColor Yellow
+    Write-Host "  [错误] 找不到网页主程序（读谱训练器.html 或 dist\yuedu-trainer.html）" -ForegroundColor Red
+    Write-Host "         请确认本文件夹里有 读谱训练器.html，或先运行 node tools\build.js。" -ForegroundColor Yellow
     Write-Host ""
     Read-Host "  按回车退出"
     exit 1
