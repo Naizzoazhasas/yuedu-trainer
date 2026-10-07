@@ -121,6 +121,51 @@ function uploadAsset(uploadUrl, token, filePath, fileName, label, mime) {
   });
 }
 
+/* ---------------- Release 说明（面向普通用户，简洁明了） ---------------- */
+
+function releaseNotes(tag) {
+  return [
+    '# 读谱训练器 ' + tag + '　Android 版',
+    '',
+    '随机生成五线谱 / 简谱练习的视奏训练工具。**完全离线**，不申请联网权限。',
+    '',
+    '## 安装',
+    '',
+    '1. 点本页下方的 **`yuedu-trainer.apk`** 下载；',
+    '2. 点开安装；系统提示「未知来源 / 禁止安装未知应用」时允许一次即可。',
+    '',
+    '> 也可以用数据线：`adb install -r yuedu-trainer.apk`',
+    '> 如果装过旧版本提示「应用未安装」，先在设置里卸载旧的再装。',
+    '',
+    '## 功能',
+    '',
+    '| 模块 | 说明 |',
+    '|---|---|',
+    '| 生成 / 练习 | 随机生成节奏或旋律；可限定只出现哪几个音、哪几种时值、拍号、调号、速度 |',
+    '| 五线谱 / 简谱 | 同一个乐段两种记法随时切换，都支持首调与固定调；简谱带小节线与高低八度点 |',
+    '| 节拍器 | 可选拍号、重音、细分；速度可直接输入数字，也能敲拍测速 |',
+    '| 调音器 | 麦克风实时测音高，显示音分偏差；支持吉他 / 尤克里里调弦与 A4 基准调整 |',
+    '| 音阶查找对照 | 大标题 + 三个下拉 + 点亮的钢琴键盘；可查该调在吉他、口琴、竖笛等乐器上的位置 |',
+    '| 乐器音阶表 | 吉他 / 尤克里里 / 贝斯指板、10 孔口琴吹吸、竖笛指法、钢琴键位 |',
+    '| 移调 | 降 B 单簧管 / 小号、降 E 萨克斯、F 圆号等移调乐器的记谱音与实际音互转 |',
+    '| 导出 | 保存为 PNG 图片、MIDI 文件、MusicXML（可直接导入 MuseScore） |',
+    '| 练习模式 | 预备拍、速度渐变（慢练到原速）、进度统计 |',
+    '| 听辨训练 | 听节奏 / 音程 / 和弦作答，**作答后立即公布正确答案的谱面** |',
+    '',
+    '## 使用提示',
+    '',
+    '- **麦克风**：调音器首次进入会请求录音权限，允许即可；拒绝也不影响其它功能。',
+    '- **导出文件在哪**：图片保存在**相册**的 `Pictures/读谱训练器/`，MIDI 与 MusicXML 在**下载**的 `Download/读谱训练器/`；部分手机的相册需要下拉刷新才显示新文件夹。',
+    '- **离线**：所有内容都打包在安装包里，飞行模式也能用。',
+    '',
+    '## 其它平台',
+    '',
+    '- 网页版（打开即用，可「添加到主屏幕」）：<https://naizzoazhasas.github.io/yuedu-trainer/>',
+    '- Windows 电脑版：见仓库 README 的「电脑 App」一节，双击安装脚本即可',
+    ''
+  ].join('\n');
+}
+
 /* ---------------- 主流程 ---------------- */
 
 (async function main() {
@@ -155,28 +200,24 @@ function uploadAsset(uploadUrl, token, filePath, fileName, label, mime) {
   /* 2) 找到或创建 Release */
   var rel = await api('GET', '/repos/' + REPO + '/releases/tags/' + TAG, token);
   var release = null;
+  var notes = releaseNotes(TAG);
   if (rel.status === 200) {
     release = rel.body;
     console.log('已存在 Release ' + TAG + '，将复用并覆盖同名资产');
+    /* 说明文字也刷新一遍，保持对外介绍是最新的 */
+    var patched = await api('PATCH', '/repos/' + REPO + '/releases/' + release.id, token, {
+      name: '读谱训练器 ' + TAG + '　Android 版',
+      body: notes
+    });
+    if (patched.status === 200) {
+      release = patched.body;
+      console.log('已更新 Release 说明');
+    }
   } else if (rel.status === 404) {
-    var note = [
-      '读谱训练器 Android 版（APK）',
-      '',
-      '**安装**：手机上下载本页附件 `yuedu-trainer.apk`，点开安装；',
-      '系统提示「未知来源」时允许一次即可。也可以 `adb install yuedu-trainer.apk`。',
-      '',
-      '**功能**：随机节奏/旋律生成、五线谱（VexFlow 专业排版）与简谱对照、节拍器、',
-      '调音器、调号音阶对照、常见乐器音阶表、移调、导出 PNG/MIDI/MusicXML、练习模式、听辨训练。',
-      '',
-      '**离线**：所有资源都打包在 APK 内，应用不申请联网权限，完全离线可用。',
-      '**麦克风**：调音器需要录音权限，首次进入会让你授权。',
-      '',
-      '网页版（同样功能，https，调音器可用）：<https://naizzoazhasas.github.io/yuedu-trainer/>'
-    ].join('\n');
     var created = await api('POST', '/repos/' + REPO + '/releases', token, {
       tag_name: TAG,
-      name: '读谱训练器 ' + TAG + '（Android APK）',
-      body: note,
+      name: '读谱训练器 ' + TAG + '　Android 版',
+      body: notes,
       draft: false,
       prerelease: false
     });

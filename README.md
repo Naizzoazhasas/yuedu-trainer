@@ -4,17 +4,34 @@
 支持音符与节奏型白名单、节拍器、调音器、调号音阶对照、乐器音阶表、移调、
 导出 PNG / MIDI / MusicXML、练习模式、听辨训练与自定义音型库。
 
+> 音准和节奏都能在这里练：眼睛看谱、耳朵校音、手上打拍。
+
 ## 🌐 在线使用
 
 **<https://naizzoazhasas.github.io/yuedu-trainer/>**
 
-用浏览器直接打开即可，无需安装。在线版是 `https`，所以**调音器可以正常使用麦克风**，
+打开即用，无需安装。在线版是 `https`，所以**调音器可以正常使用麦克风**，
 也可以「添加到主屏幕 / 安装为应用」后离线使用（内置 Service Worker）。
 
-- 不联网、不上传任何数据，全部计算在浏览器本地完成；
-- 无需 `npm install`：没有打包器、没有 CDN，源码就是一堆普通 `<script>`；
+## 📱 手机 App（Android）
+
+**<https://github.com/Naizzoazhasas/yuedu-trainer/releases/latest/download/yuedu-trainer.apk>**
+
+下载后点开安装即可（提示「未知来源」时允许一次）。**完全离线**，不申请联网权限。
+
+## 💻 电脑 App（Windows）
+
+双击 **`tools\install-to-desktop.cmd`** 一键安装：桌面会出现「读谱训练器」文件夹
+和三个快捷方式，双击「读谱训练器（应用窗口）」即以独立窗口打开（无地址栏、调音器可用）。
+**不需要安装 Node.js**，只要有 Edge（Win10/11 自带）或 Chrome。
+
+## 特点
+
+- **不联网、不上传任何数据**，全部计算在浏览器本地完成；
+- **无需 `npm install`**：没有打包器、没有 CDN，源码就是一堆普通 `<script>`；
   五线谱排版用的 [VexFlow](https://github.com/vexflow/vexflow) 已作为普通文件内置于 `vendor/`；
-- 练习记录与自定义音型只保存在你自己的浏览器 `localStorage` 里。
+- 练习记录与自定义音型只保存在你自己的 `localStorage` 里；
+- 同一个应用在电脑、手机、离线都能跑：网页版 / 单文件版 / 安卓 APK / Windows 独立窗口。
 
 ---
 
