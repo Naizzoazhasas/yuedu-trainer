@@ -41,8 +41,8 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "YueDuTrainer";
 
-    /** 离线应用入口：网页资源打包在 APK 的 assets/ 目录下，没有网络请求 */
-    private static final String START_URL = "file:///android_asset/index.html";
+    /** 本地资源服务起不来时的回退入口（file:// 下没有安全上下文，调音器不可用） */
+    private static final String FILE_URL = "file:///android_asset/index.html";
 
     /** 主动申请录音权限的请求码 */
     private static final int REQ_RECORD_AUDIO = 1001;
@@ -58,6 +58,9 @@ public class MainActivity extends Activity {
     /** bridge.js 是否已注入（只注一次） */
     private boolean mBridgeInjected;
 
+    /** 本地资源服务器：让网页跑在 http://127.0.0.1 上（安全上下文，调音器才能用麦克风） */
+    private LocalAssetServer mLocalServer;
+
     /**
      * 网页通过 getUserMedia() 发起的麦克风请求。
      * 如果此时系统权限还没授予，就先把它暂存下来，等 onRequestPermissionsResult 里
@@ -68,7 +71,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.i(TAG, "启动读谱训练器外壳，加载 " + START_URL);
+        Log.i(TAG, "启动读谱训练器外壳");
 
         // 深色配色：状态栏/导航栏染色（API 21+）
         Window win = getWindow();
@@ -101,10 +104,43 @@ public class MainActivity extends Activity {
         requestRecordAudioPermissionIfNeeded();
 
         if (savedInstanceState == null) {
-            mWebView.loadUrl(START_URL);
+            loadApp();
         } else {
             // 旋转/重建后恢复历史（本应用已用 configChanges 尽量避免重建，这里只是兜底）
             mWebView.restoreState(savedInstanceState);
+        }
+    }
+
+    /**
+     * 加载网页。
+     *
+     * <p><b>关键</b>：优先用本地 HTTP 服务器（{@link LocalAssetServer}）把 assets 提供到
+     * <code>http://127.0.0.1:&lt;随机端口&gt;/</code>。因为浏览器的「安全上下文」规则决定了
+     * 只有 https / http://127.0.0.1 / localhost 才允许 <code>getUserMedia</code> 采集麦克风，
+     * 而 <code>file://</code> 不在其列——直接用 file:// 加载时调音器必然显示「不可用」。
+     *
+     * <p>如果服务器起不来（极少数设备/权限异常），回退到 file:///android_asset/index.html，
+     * 此时除调音器以外的功能仍正常，并给出明确提示。
+     */
+    private void loadApp() {
+        boolean ok;
+        try {
+            mLocalServer = new LocalAssetServer(getAssets());
+            ok = mLocalServer.start();
+        } catch (Throwable t) {
+            Log.w(TAG, "创建本地资源服务器失败：" + t);
+            ok = false;
+        }
+
+        if (ok) {
+            String url = mLocalServer.startUrl();
+            Log.i(TAG, "加载 " + url);
+            mWebView.loadUrl(url);
+        } else {
+            Log.w(TAG, "回退到 file:// 加载：调音器将不可用");
+            mWebView.loadUrl(FILE_URL);
+            Toast.makeText(this, "调音器不可用：本地资源服务启动失败，其余功能正常",
+                    Toast.LENGTH_LONG).show();
         }
     }
 
@@ -437,6 +473,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        /* 先停本地服务器，再销毁 WebView，避免后台线程继续 accept */
+        if (mLocalServer != null) {
+            mLocalServer.stop();
+            mLocalServer = null;
+        }
         if (mWebView != null) {
             mWebView.stopLoading();
             mWebView.destroy();

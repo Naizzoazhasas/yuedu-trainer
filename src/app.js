@@ -408,24 +408,85 @@
 
   /* ---------------- 侧栏控件装配 ---------------- */
 
+  /* 芯片行（可重绘）
+   *
+   * 关键设计：芯片的 DOM **只构建一次**，之后的重绘只切换 .active class。
+   * 早期实现每次 syncControls 都 U.clear(host) 重建，带来三个真实 bug：
+   *   1) 在芯片自己的 click 处理函数里重建 DOM，会把正在处理的节点从文档里摘掉；
+   *   2) 附点时值芯片把 useDotted 取反后，所有普通时值芯片都被取消高亮；
+   *   3) 预设芯片只在 buildSidebar 里画一次，切换预设后高亮永远停在旧的档位上。
+   * 现在 isActive 一律只依赖 state，且「渲染」= 重设 class，不再动结构。 */
+  var CHIP_HOSTS = [];      // 记得所有由 chipRow 管理的容器，供 repaintChips 使用
+
   function chipRow(host, items, isActive, onToggle, extraClass) {
     if (!host) return;
     U.clear(host);
     items.forEach(function (item) {
       var b = U.el('button', {
-        class: 'chip' + (isActive(item) ? ' active' : '') + (extraClass ? ' ' + extraClass : ''),
+        class: 'chip' + (extraClass ? ' ' + extraClass : ''),
         type: 'button',
-        on: {
-          click: function () {
-            onToggle(item);
-            saveState();
-          }
-        }
+        data: { key: String(item.id) },
+        'aria-pressed': 'false'
       });
       b.appendChild(document.createTextNode(item.label));
       if (item.sub) b.appendChild(U.el('span', { class: 'sub', text: item.sub }));
+      b.addEventListener('click', function () {
+        onToggle(item);
+        saveState();
+      });
       host.appendChild(b);
     });
+    host.__yueduChipRow = { items: items, isActive: isActive };
+    if (CHIP_HOSTS.indexOf(host) < 0) CHIP_HOSTS.push(host);
+    paintChipRow(host);
+  }
+
+  /** 只更新某个芯片行的 .active 状态，不重建 DOM */
+  function paintChipRow(host) {
+    if (!host || !host.__yueduChipRow) return;
+    var def = host.__yueduChipRow;
+    var kids = host.childNodes;
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (!el || el.nodeType !== 1 || !el.getAttribute) continue;
+      var key = el.getAttribute('data-key');
+      if (key === null) continue;
+      for (var j = 0; j < def.items.length; j++) {
+        if (String(def.items[j].id) === key) {
+          var on = !!def.isActive(def.items[j]);
+          if (on) el.classList.add('active'); else el.classList.remove('active');
+          el.setAttribute('aria-pressed', on ? 'true' : 'false');
+          break;
+        }
+      }
+    }
+  }
+
+  /** 重绘所有芯片行的高亮（同步 state → UI） */
+  function repaintChips() {
+    for (var i = 0; i < CHIP_HOSTS.length; i++) {
+      paintChipRow(CHIP_HOSTS[i]);
+    }
+    repaintPresets();
+  }
+
+  /** 预设芯片的高亮（它自己有独立的结构，单独重绘） */
+  function repaintPresets() {
+    var host = U.query('#gen-presets');
+    if (!host) return;
+    var kids = host.childNodes;
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (!el || el.nodeType !== 1 || !el.getAttribute) continue;
+      var id = el.getAttribute('data-preset');
+      if (id === null) continue;
+      var on = state.preset === id;
+      if (on) el.classList.add('active'); else el.classList.remove('active');
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    var cur = PRESETS.filter(function (p) { return p.id === state.preset; })[0];
+    var hint = U.query('#gen-preset-hint');
+    if (hint) hint.textContent = cur ? cur.hint : '';
   }
 
   function buildSidebar() {
@@ -435,28 +496,29 @@
       U.clear(presetHost);
       PRESETS.forEach(function (p) {
         var b = U.el('button', {
-          class: 'chip' + (state.preset === p.id ? ' active' : ''),
+          class: 'chip',
           type: 'button',
-          on: {
-            click: function () {
-              state.preset = p.id;
-              Object.keys(p.patch).forEach(function (k) {
-                if (k === 'time') state.time = { num: p.patch.time.num, den: p.patch.time.den };
-                else state[k] = p.patch[k];
-              });
-              saveState();
-              syncControls();
-              regenerate();
-              U.toast('已切换到「' + p.name + '」档位', 'ok');
-            }
-          }
+          data: { preset: p.id },
+          'aria-pressed': 'false'
         });
         b.appendChild(document.createTextNode(p.icon + ' ' + p.name));
+        b.addEventListener('click', function () {
+          state.preset = p.id;
+          Object.keys(p.patch).forEach(function (k) {
+            if (k === 'time') state.time = { num: p.patch.time.num, den: p.patch.time.den };
+            else state[k] = p.patch[k];
+          });
+          saveState();
+          syncControls();          /* 含 repaintChips()，会同步预设芯片自身的高亮 */
+          regenerate();
+          U.toast('已切换到「' + p.name + '」档位', 'ok');
+        });
         presetHost.appendChild(b);
       });
-      var cur = PRESETS.filter(function (p) { return p.id === state.preset; })[0];
-      var hint = U.query('#gen-preset-hint');
-      if (hint) hint.textContent = cur ? cur.hint : '';
+      var cur0 = PRESETS.filter(function (p) { return p.id === state.preset; })[0];
+      var hint0 = U.query('#gen-preset-hint');
+      if (hint0) hint0.textContent = cur0 ? cur0.hint : '';
+      repaintPresets();
     }
 
     /* 拍号 */
@@ -533,12 +595,16 @@
 
     state.durations = state.durations.filter(function (d) { return typeof d === 'number'; });
 
-    chipRow(U.query('#gen-durations'), G.DURATION_LIST.map(function (d) {
-      return { id: d.dur + '/' + d.dotted, dur: d.dur, dotted: d.dotted, label: d.label, sub: U.beatsOf(d.dur, d.dotted) + '拍' };
+    /* 时值芯片：只放「基本时值」，每个芯片表示「这个时值允许出现」。
+     * 附点、休止、切分都由下方各自的复选框控制，不在这里重复出现——
+     * 早先把 4 个附点时值也做成芯片，语义与复选框重叠，高亮还互相打架。 */
+    chipRow(U.query('#gen-durations'), G.DURATION_LIST.filter(function (d) {
+      return !d.dotted;
+    }).map(function (d) {
+      return { id: d.dur, dur: d.dur, label: d.label, sub: U.beatsOf(d.dur, false) + '拍' };
     }), function (it) {
-      return state.durations.indexOf(it.dur) >= 0 && !!it.dotted === !!state.useDotted && !it.dotted;
+      return state.durations.indexOf(it.dur) >= 0;
     }, function (it) {
-      if (it.dotted) { state.useDotted = !state.useDotted; syncControls(); regenerate(); return; }
       var i = state.durations.indexOf(it.dur);
       if (i >= 0) {
         if (state.durations.length <= 1) { U.toast('至少要保留一种时值', 'warn'); return; }
@@ -583,6 +649,9 @@
 
     var libChip = U.query('#gen-usepatterns');
     if (libChip) libChip.checked = state.usePatterns;
+
+    /* 所有芯片行的高亮统一在这一处刷新（顺序很重要：必须在 state 全部同步完之后） */
+    repaintChips();
   }
 
   function bindSidebarEvents() {
@@ -631,22 +700,21 @@
         else if (e.key === 'ArrowDown') { e.preventDefault(); applyTempo(state.tempo - 1); }
       });
     }
-    /* 常用速度一键设定 */
-    var presetHost = U.query('#gen-tempo-presets');
-    if (presetHost) {
-      U.clear(presetHost);
-      [40, 60, 72, 88, 100, 120, 144, 180].forEach(function (bpm) {
-        presetHost.appendChild(U.el('button', {
-          class: 'chip small', type: 'button', text: String(bpm),
-          title: bpm + ' PBM · ' + tempoWord(bpm),
-          on: {
-            click: function () {
-              applyTempo(bpm);
-              syncControls();
-              regenerate();
-            }
-          }
-        }));
+    /* 常用速度一键设定（用 chipRow 建，这样高亮会跟着 state.tempo 走） */
+    if (U.query('#gen-tempo-presets')) {
+      chipRow(U.query('#gen-tempo-presets'), [40, 60, 72, 88, 100, 120, 144, 180].map(function (bpm) {
+        return { id: bpm, label: String(bpm), sub: null, bpm: bpm, word: tempoWord(bpm) };
+      }), function (it) {
+        return state.tempo === it.bpm;
+      }, function (it) {
+        applyTempo(it.bpm);
+        syncControls();
+        regenerate();
+      }, 'small');
+      /* 给每个芯片补上 title（chipRow 不管提示文字） */
+      U.queryAll('.chip', U.query('#gen-tempo-presets')).forEach(function (b) {
+        var v = b.getAttribute('data-key');
+        if (v) b.title = v + ' PBM · ' + tempoWord(parseInt(v, 10));
       });
     }
     on('#gen-clef', 'change', function (e) { state.clef = e.target.value; saveState(); regenerate(); });
@@ -911,95 +979,297 @@
 
   /* ---------------- 调号与音阶 ---------------- */
 
+  /* ---------------- 调号与音阶（音阶查找对照） ----------------
+   * 设计目标：像附图那样简洁——一个大标题、三个下拉、一排音阶音芯片、两个按钮，加一台点亮的钢琴键盘。
+   * 详细信息（调号位置、首调/固定调简谱、频率、五度圈）收进折叠区，不干扰主视图。 */
+
+  var SCALE_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+
+  var SCALE_ACCIDENTALS = [
+    { id: '0', label: '无升降', acc: 0 },
+    { id: '#', label: '升', acc: 1 },
+    { id: 'b', label: '降', acc: -1 }
+  ];
+
+  var SCALE_MODES = [
+    { id: 'major', label: '大调', mode: 'major' },
+    { id: 'minor-harm', label: '和声小调', mode: 'minor', type: 'harmonic' },
+    { id: 'minor-nat', label: '自然小调', mode: 'minor', type: 'natural' }
+  ];
+
+  /* 把「音名 + 升降 + 调式」组合成 key 对象 */
+  function scaleKeyFromSelection(step, accId, modeId) {
+    var acc = accId === '#' ? 1 : (accId === 'b' ? -1 : 0);
+    var pc = (TH.STEP_SEMI[step] + acc + 120) % 12;
+    var m = SCALE_MODES.filter(function (x) { return x.id === modeId; })[0] || SCALE_MODES[0];
+    return TH.normalizeKey({ tonic: pc, mode: m.mode });
+  }
+
+  /* 反解：由 key 得到三个下拉应该显示的值（用于状态同步） */
+  function selectionFromKey(k) {
+    var sp = TH.tonicPitch(k, 4);
+    var accId = sp.acc === 1 ? '#' : (sp.acc === -1 ? 'b' : '0');
+    var modeId = k.mode === 'major' ? 'major' : 'minor-harm';
+    return { step: sp.step, accId: accId, modeId: modeId };
+  }
+
   function initScale() {
-    var keySel = U.query('#scale-key');
-    var typeSel = U.query('#scale-type');
-    var jpSel = U.query('#scale-jpmode');
-    var solfaChk = U.query('#scale-solfa');
-    var circlesChk = U.query('#scale-circles');
-    if (!keySel) return;
-    if (circlesChk && circlesChk.checked === undefined) circlesChk.checked = true;
+    var titleEl = U.query('#sc-title');
+    var stepSel = U.query('#sc-step');
+    var accSel = U.query('#sc-acc');
+    var modeSel = U.query('#sc-mode');
+    var chipsEl = U.query('#sc-chips');
+    var keysEl = U.query('#sc-keys');
+    var instrBar = U.query('#sc-instr-bar');
+    var jpFixedChk = U.query('#sc-jpfixed');
+    var labelsChk = U.query('#sc-labels');
+    var detailBody = U.query('#sc-detail-body');
+    var instBtn = U.query('#sc-instrument');
+    var playBtn = U.query('#sc-play');
+    if (!stepSel || !keysEl) return;
 
-    U.clear(keySel);
-    TH.allKeys().forEach(function (k) {
-      keySel.appendChild(U.el('option', { value: k.tonic + '-' + k.mode, text: k.name + '（' + k.signature + ' 个' + (k.signature > 0 ? '升号' : k.signature < 0 ? '降号' : '无升降') + '）' }));
+    /* ---- 初始化下拉 ---- */
+    U.clear(stepSel);
+    SCALE_STEPS.forEach(function (s) {
+      stepSel.appendChild(U.el('option', { value: s, text: s }));
     });
-    keySel.value = state.keyId;
+    U.clear(accSel);
+    SCALE_ACCIDENTALS.forEach(function (a) {
+      accSel.appendChild(U.el('option', { value: a.id, text: a.label }));
+    });
+    U.clear(modeSel);
+    SCALE_MODES.forEach(function (m) {
+      modeSel.appendChild(U.el('option', { value: m.id, text: m.label }));
+    });
 
-    function render() {
-      var host = U.query('#scale-mount');
-      U.clear(host);
-      var k = keyFromId(keySel.value);
-      var type = typeSel.value;
-      var jpMode = jpSel.value;
-      var showSolfa = solfaChk.checked;
+    /* 用当前全局调作为初始选择 */
+    var init = selectionFromKey(keyFromId(state.keyId));
+    stepSel.value = init.step;
+    accSel.value = init.accId;
+    modeSel.value = init.modeId;
 
-      /* 头部说明 */
-      var sig = TH.keySignature(k);
-      var info = U.el('div', { class: 'row', style: { marginBottom: '12px' } },
-        U.el('span', { class: 'badge accent', text: TH.keyName(k) }),
-        U.el('span', { class: 'badge', text: '调号：' + (sig.count === 0 ? '无升降号' : sig.count + ' 个' + (sig.accidental === 'sharp' ? '升号 ♯' : '降号 ♭')) }),
-        U.el('span', { class: 'badge', text: '关系' + (k.mode === 'major' ? '小调' : '大调') + '：' + TH.keyName(TH.normalizeKey({ tonic: k.tonic, mode: k.mode === 'major' ? 'minor' : 'major' })) }));
-      host.appendChild(info);
+    /* 当前选中的乐器（用于「乐器」按钮的高亮） */
+    var currentInstrument = null;
 
-      /* 音阶表 */
-      var typeName = type === 'major' ? '自然大调' : (type === 'harmonic' ? '和声小调' : '自然小调');
-      var useType = type;
-      var pitches = TH.scalePitches(k, 4, useType);
-      var table = U.el('table', { class: 'scale-table' });
-      var head = U.el('tr', {});
-      ['音级', '音名', '首调简谱', '固定调简谱', 'MIDI', '频率(Hz)'].forEach(function (h) {
-        head.appendChild(U.el('th', { text: h }));
-      });
-      table.appendChild(head);
-      pitches.forEach(function (p, i) {
-        var rel = TH.jianpuOf(p, k, 'relative');
-        var fix = TH.jianpuOf(p, k, 'fixed');
-        var jpText = function (j) {
-          var s = (j.accidental === '#' ? '\u266F' : j.accidental === 'b' ? '\u266D' : '') + j.digit;
-          if (j.octave < 0) s += ' (低' + (-j.octave) + '八度)';
-          if (j.octave > 0) s += ' (高' + j.octave + '八度)';
-          return s;
-        };
-        var tr = U.el('tr', {});
-        tr.appendChild(U.el('td', { text: String(i + 1) + (showSolfa ? ' ' + ['do', 're', 'mi', 'fa', 'sol', 'la', 'si'][i] : '') }));
-        tr.appendChild(U.el('td', { class: 'strong', text: TH.pitchName(p, { octave: true }) }));
-        tr.appendChild(U.el('td', { text: jpText(rel) }));
-        tr.appendChild(U.el('td', { text: jpText(fix) }));
-        tr.appendChild(U.el('td', { text: String(TH.midiOf(p)) }));
-        tr.appendChild(U.el('td', { text: TH.midiToFreq(TH.midiOf(p)).toFixed(2) }));
-        table.appendChild(tr);
-      });
-      host.appendChild(U.el('div', { class: 'scale-table-wrap' }, table));
-      host.appendChild(U.el('div', { class: 'hint', style: { marginTop: '8px' },
-        text: '「首调简谱」把本调主音记作 1（唱名固定为 do）；「固定调简谱」只有 C 才是 1。频率按 A4 = 440Hz 计算。' }));
-
-      /* 五度圈 */
-      if (circlesChk.checked) {
-        host.appendChild(circleOfFifths(k));
-      }
-      host.appendChild(U.el('div', { class: 'hint', style: { marginTop: '6px' },
-        text: '音阶数据可点右上角「保存为图片」导出 PNG。' }));
+    function selectedKey() {
+      return scaleKeyFromSelection(stepSel.value, accSel.value, modeSel.value);
     }
 
-    keySel.addEventListener('change', function () { state.keyId = keySel.value; saveState(); render(); });
-    typeSel.addEventListener('change', render);
-    jpSel.addEventListener('change', render);
-    solfaChk.addEventListener('change', render);
-    circlesChk.addEventListener('change', render);
+    /* ---- 主渲染 ---- */
+    function render() {
+      var k = selectedKey();
+      var modeId = modeSel.value;
+      var type = modeId === 'minor-nat' ? 'natural' : (modeId === 'minor-harm' ? 'harmonic' : 'major');
+      var pitches = TH.scalePitches(k, 4, type);
+      var sig = TH.keySignature(k);
 
+      /* 大标题：突出「升F大调」这样的名称 */
+      if (titleEl) {
+        U.clear(titleEl);
+        var sp = TH.tonicPitch(k, 4);
+        var accGlyph = sp.acc === 1 ? '\u266F' : (sp.acc === -1 ? '\u266D' : '');
+        titleEl.appendChild(U.el('span', { class: 'sc-title-name', text: sp.step + accGlyph }));
+        titleEl.appendChild(U.el('span', { class: 'sc-title-mode', text: (k.mode === 'minor' ? '小调' : '大调') }));
+        titleEl.title = TH.keyName(k) + '　调号：' +
+          (sig.count === 0 ? '无升降号' : sig.count + ' 个' + (sig.accidental === 'sharp' ? '升号 ♯' : '降号 ♭'));
+      }
+
+      /* 音阶音芯片 */
+      U.clear(chipsEl);
+      pitches.forEach(function (p, i) {
+        var midi = TH.midiOf(p);
+        var name = TH.pitchName(p, { octave: false }).replace('#', '\u266F').replace('b', '\u266D');
+        var chip = U.el('button', {
+          class: 'sc-chip', type: 'button',
+          title: TH.pitchName(p, { octave: true }) + '（第 ' + (i + 1) + ' 级）',
+          on: {
+            click: function () {
+              if (!APP.engine || !APP.engine.playNote) { U.toast('音频引擎未加载', 'err'); return; }
+              try { APP.engine.init(); } catch (e) { /* 忽略 */ }
+              try { APP.engine.playNote(midi, 1.0, 'piano'); } catch (e) { /* 忽略 */ }
+            }
+          }
+        });
+        chip.appendChild(U.el('span', { class: 'sc-chip-dot', text: '\u266A' }));
+        chip.appendChild(U.el('span', { class: 'sc-chip-name', text: name }));
+        chipsEl.appendChild(chip);
+      });
+
+      /* 钢琴键盘：点亮音阶音（含高八度主音，听起来更完整） */
+      U.clear(keysEl);
+      var topPitch = TH.pitchFromDegree(pitches[0], 7, 12);
+      var hl = pitches.map(function (p) { return TH.midiOf(p); });
+      hl.push(TH.midiOf(topPitch));
+      var rng = APP.piano.rangeForPitches(pitches.concat([topPitch]));
+      /* 每个白键都标音名（含八度），像标准钢琴对照图那样；
+       * 白键数随音域变化，这里按数量动态选宽度，保证最窄也有 22px。 */
+      var whiteCount = 0;
+      for (var mi = rng.lowMidi; mi <= rng.highMidi; mi++) {
+        if (!APP.piano.isBlack(mi)) whiteCount++;
+      }
+      var kw = U.clamp(Math.round(660 / Math.max(1, whiteCount)), 22, 34);
+      var kb = APP.piano.build({
+        lowMidi: rng.lowMidi, highMidi: rng.highMidi,
+        whiteW: kw, whiteH: 120,
+        highlight: hl,
+        labels: (labelsChk && labelsChk.checked) ? 'all' : 'none'
+      });
+      keysEl.appendChild(kb);
+
+      /* 乐器提示条 */
+      if (instrBar) {
+        if (!currentInstrument) {
+          instrBar.style.display = 'none';
+        } else {
+          instrBar.style.display = '';
+          U.clear(instrBar);
+          var notes = [];
+          try {
+            notes = APP.instruments ? APP.instruments.notesOf(currentInstrument, {
+              key: k, lowMidi: rng.lowMidi, highMidi: rng.highMidi
+            }) : [];
+          } catch (e) { notes = []; }
+          var found = notes.filter(function (n) { return n && n.position; });
+          instrBar.appendChild(U.el('span', { class: 'sc-instr-label', text: '乐器位置：' }));
+          if (!found.length) {
+            instrBar.appendChild(U.el('span', { class: 'hint', text: '该乐器在这个音域内没有对应位置' }));
+          } else {
+            found.slice(0, 18).forEach(function (n) {
+              var pos = n.position || {};
+              var where = pos.fret !== undefined ? (pos.string + '弦 ' + pos.fret + '品')
+                : pos.hole !== undefined ? ('第' + pos.hole + '孔' + (pos.blow ? '吹' : '吸'))
+                  : pos.key !== undefined ? ('键 ' + pos.key) : '';
+              instrBar.appendChild(U.el('span', {
+                class: 'sc-instr-item',
+                text: (n.name || '') + ' ' + where
+              }));
+            });
+          }
+          instrBar.appendChild(U.el('button', {
+            class: 'btn small ghost', text: '✕ 关闭', type: 'button',
+            on: { click: function () { currentInstrument = null; render(); } }
+          }));
+        }
+      }
+
+      /* 折叠区详情 */
+      if (detailBody) {
+        U.clear(detailBody);
+
+        detailBody.appendChild(U.el('div', { class: 'row', style: { margin: '10px 0' } },
+          U.el('span', { class: 'badge accent', text: TH.keyName(k) }),
+          U.el('span', { class: 'badge', text: '调号：' + (sig.count === 0 ? '无升降号' :
+            sig.count + ' 个' + (sig.accidental === 'sharp' ? '升号 ♯' : '降号 ♭')) }),
+          U.el('span', { class: 'badge', text: '关系' + (k.mode === 'major' ? '小调' : '大调') + '：' +
+            TH.keyName(TH.normalizeKey({ tonic: k.tonic, mode: k.mode === 'major' ? 'minor' : 'major' })) })));
+
+        var table = U.el('table', { class: 'scale-table' });
+        table.appendChild(U.el('tr', {}, ['音级', '音名', '唱名', '首调简谱', '固定调简谱', 'MIDI', '频率(Hz)'].map(function (h) {
+          return U.el('th', { text: h });
+        })));
+        var solfaNames = ['do', 're', 'mi', 'fa', 'sol', 'la', 'si'];
+        pitches.forEach(function (p, i) {
+          var rel = TH.jianpuOf(p, k, 'relative');
+          var fix = TH.jianpuOf(p, k, 'fixed');
+          function jpText(j) {
+            var t = (j.accidental === '#' ? '\u266F' : j.accidental === 'b' ? '\u266D' : '') + j.digit;
+            if (j.octave < 0) t += '（低' + (-j.octave) + '八度）';
+            if (j.octave > 0) t += '（高' + j.octave + '八度）';
+            return t;
+          }
+          table.appendChild(U.el('tr', {},
+            U.el('td', { text: String(i + 1) }),
+            U.el('td', { class: 'strong', text: TH.pitchName(p, { octave: true }) }),
+            U.el('td', { text: solfaNames[i] }),
+            U.el('td', { text: jpText(rel) }),
+            U.el('td', { text: jpText(fix) }),
+            U.el('td', { text: String(TH.midiOf(p)) }),
+            U.el('td', { text: TH.midiToFreq(TH.midiOf(p)).toFixed(2) })));
+        });
+        detailBody.appendChild(U.el('div', { class: 'scale-table-wrap' }, table));
+        detailBody.appendChild(U.el('div', { class: 'hint', style: { marginTop: '8px' },
+          text: '「首调简谱」把本调主音记作 1（唱名固定为 do）；「固定调简谱」只有 C 才是 1。频率按 A4 = 440Hz 计算。' }));
+
+        detailBody.appendChild(U.el('div', { class: 'sc-circle-wrap' }, circleOfFifths(k)));
+      }
+    }
+
+    /* ---- 事件 ---- */
+    function onSelChange() {
+      var k = selectedKey();
+      state.keyId = k.tonic + '-' + k.mode;   // 同步回全局状态，生成页可沿用
+      saveState();
+      render();
+    }
+    stepSel.addEventListener('change', onSelChange);
+    accSel.addEventListener('change', onSelChange);
+    modeSel.addEventListener('change', onSelChange);
+    if (jpFixedChk) jpFixedChk.addEventListener('change', render);
+    if (labelsChk) labelsChk.addEventListener('change', render);
+
+    /* 「乐器」按钮：弹出常用乐器选择，选中后在键盘上方列出该乐器上的位置 */
+    if (instBtn) {
+      instBtn.addEventListener('click', function () {
+        if (!APP.instruments) { U.toast('乐器模块未加载', 'err'); return; }
+        var k = selectedKey();
+        var list = APP.instruments.list();
+        var box = U.el('div', { class: 'sc-instr-picker' });
+        box.appendChild(U.el('div', { class: 'hint',
+          text: '选择乐器后，键盘上方会列出这个调在它上面的位置：' }));
+        var row = U.el('div', { class: 'chip-row', style: { marginTop: '10px' } });
+        list.forEach(function (it) {
+          row.appendChild(U.el('button', {
+            class: 'chip' + (currentInstrument === it.id ? ' active' : ''),
+            type: 'button', text: it.name,
+            on: {
+              click: function () {
+                currentInstrument = it.id;
+                m.close();
+                render();
+              }
+            }
+          }));
+        });
+        if (!list.length) box.appendChild(U.el('div', { class: 'hint', text: '没有可用的乐器数据。' }));
+        box.appendChild(row);
+        var m = U.modal('选择乐器 · ' + TH.keyName(k), box);
+      });
+    }
+
+    /* 「播放音阶」：上行 + 高八度主音 + 下行 */
+    if (playBtn) {
+      playBtn.addEventListener('click', function () {
+        if (!APP.engine || !APP.engine.playNote) { U.toast('音频引擎未加载', 'err'); return; }
+        try { APP.engine.init(); } catch (e) { /* 忽略 */ }
+        var k = selectedKey();
+        var type2 = modeSel.value === 'minor-nat' ? 'natural' : (modeSel.value === 'minor-harm' ? 'harmonic' : 'major');
+        var sc = TH.scalePitches(k, 4, type2);
+        var ups = sc.map(function (p) { return TH.midiOf(p); });
+        var top = TH.midiOf(TH.pitchFromDegree(sc[0], 7, 12));
+        var seq = ups.concat([top]).concat(ups.slice().reverse());
+        seq.forEach(function (midi, i) {
+          setTimeout(function () {
+            try { APP.engine.playNote(midi, 0.42, 'piano'); } catch (e) { /* 忽略 */ }
+          }, i * 340);
+        });
+        U.toast('播放 ' + TH.keyName(k) + ' 音阶', 'ok');
+      });
+    }
+
+    /* 保存为图片 */
     var pngBtn = U.query('#scale-png');
     if (pngBtn) {
       pngBtn.addEventListener('click', function () {
         var node = U.query('#scale-mount');
         if (!APP['export'] || !APP['export'].saveNodeImage) { U.toast('导出模块未加载', 'err'); return; }
-        APP['export'].saveNodeImage(node, U.timestampName('调号音阶', '.png'), {
-          title: '调号与音阶对照 · ' + TH.keyName(keyFromId(keySel.value))
+        APP['export'].saveNodeImage(node, U.timestampName('音阶对照', '.png'), {
+          title: '音阶查找对照 · ' + TH.keyName(selectedKey())
         }).then(function () { U.toast('已保存图片', 'ok'); }, function (e) {
           U.toast('保存失败：' + (e && e.message ? e.message : e), 'err');
         });
       });
     }
+
     render();
   }
 
@@ -1395,6 +1665,10 @@
   /* ---------------- 启动 ---------------- */
 
   function boot() {
+    /* 桌面应用窗口（Edge/Chrome --app 模式）用 document.title 作为标题栏与任务栏文字，
+     * 所以这里显式设成应用名。 */
+    try { document.title = '读谱训练器'; } catch (e) { /* 忽略 */ }
+
     loadState();
     buildSidebar();
     bindSidebarEvents();

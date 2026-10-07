@@ -197,34 +197,49 @@
   <section class="panel" data-panel="scale">
     <div class="card">
       <div class="card-title">
-        调号与音阶对照
+        音阶查找对照
         <span class="spacer"></span>
         <button class="btn small" id="scale-png">&#128247; 保存为图片</button>
       </div>
-      <div class="row" style="margin-bottom:12px">
-        <div class="field" style="min-width:190px">
-          <span class="label">选择调</span>
-          <select id="scale-key"></select>
+
+      <div id="scale-mount">
+        <!-- 大标题（当前调） -->
+        <div class="sc-title" id="sc-title">C 大调</div>
+
+        <!-- 三个下拉：音名 / 升降 / 大小调 -->
+        <div class="sc-selects">
+          <select id="sc-step" aria-label="音名"></select>
+          <select id="sc-acc" aria-label="升降记号"></select>
+          <select id="sc-mode" aria-label="调式"></select>
         </div>
-        <div class="field" style="min-width:150px">
-          <span class="label">音阶类型</span>
-          <select id="scale-type">
-            <option value="major">自然大调</option>
-            <option value="harmonic">和声小调</option>
-            <option value="natural">自然小调</option>
-          </select>
+
+        <!-- 音阶的音：音符芯片 -->
+        <div class="sc-row">
+          <span class="sc-row-label">音阶的音：</span>
+          <span class="sc-chips" id="sc-chips"></span>
         </div>
-        <div class="field" style="min-width:170px">
-          <span class="label">简谱写法</span>
-          <select id="scale-jpmode">
-            <option value="relative">首调（主音=1）</option>
-            <option value="fixed">固定调</option>
-          </select>
+
+        <!-- 操作按钮 -->
+        <div class="sc-actions">
+          <button class="btn" id="sc-instrument">乐器</button>
+          <button class="btn" id="sc-play">播放音阶</button>
+          <span class="spacer"></span>
+          <label class="check"><input type="checkbox" id="sc-jpfixed"> 简谱用固定调</label>
+          <label class="check"><input type="checkbox" id="sc-labels" checked> 键上标音名</label>
         </div>
-        <label class="check"><input type="checkbox" id="scale-solfa" checked> 显示唱名</label>
-        <label class="check"><input type="checkbox" id="scale-circles" checked> 显示五度圈</label>
+
+        <!-- 乐器提示条（点了「乐器」按钮后出现） -->
+        <div class="sc-instr-bar" id="sc-instr-bar" style="display:none"></div>
+
+        <!-- 钢琴键盘 -->
+        <div class="sc-keys" id="sc-keys"></div>
+
+        <!-- 详细对照（折叠） -->
+        <details class="sc-details" id="sc-details">
+          <summary>详细对照：调号位置 / 首调与固定调简谱 / 频率 / 五度圈</summary>
+          <div id="sc-detail-body"></div>
+        </details>
       </div>
-      <div id="scale-mount"></div>
     </div>
 
     <div class="card">
@@ -315,6 +330,7 @@
 <script src="src/core/jianpu.js"></script>
 <script src="src/audio/tuner.js"></script>
 <script src="src/audio/engine.js"></script>
+<script src="src/data/piano.js"></script>
 <script src="src/data/instruments.js"></script>
 <script src="src/export/exporter.js"></script>
 <script src="src/features/library.js"></script>

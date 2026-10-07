@@ -13,6 +13,10 @@
   var U = APP.util;
   var TH = APP.theory;
   var G = APP.generator;
+  /* 内置自绘渲染器（VexFlow 不可用时的兜底；APP 里注册为 renderer） */
+  function builtinRenderer() {
+    try { return APP.renderer || null; } catch (e) { return null; }
+  }
 
   /* 音程表：半音数 -> 名称 */
   var INTERVALS = [
@@ -157,6 +161,8 @@
 
     var choices = U.el('div', { class: 'ear-choices' });
     var feedback = U.el('div', { class: 'ear-feedback' });
+    /* 作答后公布答案的地方（把正确谱面画出来，让用户看谱对照） */
+    var answerBox = U.el('div', { class: 'ear-answer' });
     var statsEl = U.el('div', { class: 'row', style: { marginTop: '10px' } });
 
     var root = U.el('div', { class: 'ear-root' });
@@ -167,6 +173,7 @@
     root.appendChild(pad);
     root.appendChild(choices);
     root.appendChild(feedback);
+    root.appendChild(answerBox);
     root.appendChild(statsEl);
     container.appendChild(root);
 
@@ -196,6 +203,13 @@
       U.queryAll('.chip', modeRow).forEach(function (c) {
         c.classList.toggle('active', c.getAttribute('data-mode') === session.mode);
       });
+      /* 公布答案期间收起敲拍键盘与作答按钮，让谱面成为视觉焦点 */
+      if (session.answerRevealed) {
+        pad.style.display = 'none';
+        answerBtn.style.display = 'none';
+        choices.style.display = session.mode === 'rhythm' ? 'none' : '';
+        return;
+      }
       pad.style.display = session.mode === 'rhythm' ? '' : 'none';
       choices.style.display = session.mode === 'rhythm' ? 'none' : '';
       answerBtn.style.display = session.mode === 'rhythm' ? '' : 'none';
@@ -205,7 +219,12 @@
     function newQuestion() {
       stopPlay(); stopListen();
       feedback.textContent = '';
+      feedback.className = 'ear-feedback';
       U.clear(choices);
+      U.clear(answerBox);
+      session.answerRevealed = false;
+      pad.style.display = session.mode === 'rhythm' ? '' : 'none';
+      answerBtn.style.display = session.mode === 'rhythm' ? '' : 'none';
       session.taps = [];
       session.phase = 'idle';
       tapBtn.classList.remove('live');
@@ -250,7 +269,7 @@
         prompt.textContent = '听两个音，选出它们的音程关系。';
         session.question.options.forEach(function (o) {
           choices.appendChild(U.el('button', {
-            class: 'chip', type: 'button', text: o.name,
+            class: 'chip', type: 'button', text: o.name, data: { value: String(o.semi) },
             on: { click: function () { gradeChoice(o.semi, o.name); } }
           }));
         });
@@ -264,11 +283,11 @@
         };
         prompt.textContent = '听一个和弦，判断它是大三和弦还是小三和弦。';
         choices.appendChild(U.el('button', {
-          class: 'chip', type: 'button', text: '大三和弦',
+          class: 'chip', type: 'button', text: '大三和弦', data: { value: 'major' },
           on: { click: function () { gradeChoice('major', '大三和弦'); } }
         }));
         choices.appendChild(U.el('button', {
-          class: 'chip', type: 'button', text: '小三和弦',
+          class: 'chip', type: 'button', text: '小三和弦', data: { value: 'minor' },
           on: { click: function () { gradeChoice('minor', '小三和弦'); } }
         }));
       }
@@ -310,6 +329,165 @@
       later(function () { feedback.textContent = '播放完毕，可以作答了。'; }, 1600);
     }
 
+    /* ---- 公布答案：把「正确的谱面」画出来 ----
+     * 听力题只靠耳朵记住是不够的，看完谱面把「听到的」和「看到的」对上，才是真正的听辨训练。
+     * 渲染优先用 VexFlow（专业排版），没有就退回内置自绘渲染器；两者都没有就退化为文字说明。 */
+
+    /** 用一串 midi 造一个简单的单声部乐段（可选指定每个音的时值） */
+    function makePitchScore(midis, opts2) {
+      opts2 = opts2 || {};
+      var key = opts2.key || (opts.getKey ? opts.getKey() : { tonic: 0, mode: 'major' });
+      var notes = midis.map(function (m) {
+        var p = TH.pitchFromMidi(m, true);
+        return {
+          pitch: p, dur: opts2.dur || 1, dotted: false, tie: false,
+          midi: TH.midiOf(p), pos: TH.staffPos(p, 'treble')
+        };
+      });
+      var beats = U.beatsOf(opts2.dur || 1, false) * notes.length;
+      return {
+        key: TH.normalizeKey(key),
+        time: { num: Math.max(1, Math.round(beats)), den: 4 },
+        tempo: opts2.tempo || 72,
+        clef: 'treble',
+        title: '',
+        bars: [{ notes: notes, beats: beats }]
+      };
+    }
+
+    /**
+     * 把节奏题的正确谱面画出来：把每一拍的时值铺满一行（用同一个音高，突出节奏本身）。
+     * 目标音头时间 → 相邻差值 → 时值。
+     */
+    function makeRhythmDisplayScore(question) {
+      var t = question.targets || [];
+      if (!t.length) return null;
+      var key = opts.getKey ? opts.getKey() : { tonic: 0, mode: 'major' };
+      var spb = 60 / ((question.score && question.score.tempo) || 80);
+
+      /* 每个音头的相邻间隔（秒）→ 试出最接近的时值 */
+      var CAND = [
+        { dur: 4, dotted: false }, { dur: 2, dotted: true }, { dur: 2, dotted: false },
+        { dur: 1, dotted: true }, { dur: 1, dotted: false }, { dur: 0.5, dotted: true },
+        { dur: 0.5, dotted: false }, { dur: 0.25, dotted: false }
+      ];
+      var items = [];
+      for (var i = 0; i < t.length; i++) {
+        var gapBeats;
+        if (i < t.length - 1) {
+          gapBeats = (t[i + 1] - t[i]) / spb;
+        } else {
+          /* 最后一个音：用整段平均拍数兜底 */
+          gapBeats = 1;
+        }
+        var best = CAND[0], bestErr = Infinity;
+        CAND.forEach(function (c) {
+          var b = U.beatsOf(c.dur, c.dotted);
+          var e = Math.abs(b - gapBeats);
+          if (e < bestErr) { bestErr = e; best = c; }
+        });
+        items.push(best);
+      }
+      /* 最后一个音按题目的实际结尾对齐到整拍 */
+      if (items.length) {
+        var totalBeats = 0;
+        items.forEach(function (it) { totalBeats += U.beatsOf(it.dur, it.dotted); });
+        var barBeats = (question.score.time.num * (4 / question.score.time.den)) * question.score.bars.length;
+        var diff = barBeats - totalBeats;
+        if (diff > 0.01) {
+          var last = items[items.length - 1];
+          var lb = U.beatsOf(last.dur, last.dotted) + diff;
+          var best2 = last, err2 = Infinity;
+          CAND.forEach(function (c) {
+            var e = Math.abs(U.beatsOf(c.dur, c.dotted) - lb);
+            if (e < err2) { err2 = e; best2 = c; }
+          });
+          items[items.length - 1] = best2;
+        }
+      }
+
+      var midi = TH.midiOf(TH.tonicPitch(key, 4));
+      var p = TH.pitchFromMidi(midi, true);
+      var notes = items.map(function (it) {
+        return {
+          pitch: p, dur: it.dur, dotted: it.dotted, tie: false,
+          midi: midi, pos: TH.staffPos(p, 'treble')
+        };
+      });
+      var beats2 = 0;
+      notes.forEach(function (n) { beats2 += U.beatsOf(n.dur, n.dotted); });
+      return {
+        key: TH.normalizeKey(key),
+        time: { num: Math.max(1, Math.round(beats2)), den: 4 },
+        tempo: (question.score && question.score.tempo) || 80,
+        clef: 'treble',
+        title: '',
+        bars: [{ notes: notes, beats: beats2 }]
+      };
+    }
+
+    /**
+     * 把答案渲染进 answerBox。
+     * @param {Object} info { title:string, score?:Score, text?:string }
+     */
+    function showAnswer(info) {
+      U.clear(answerBox);
+      session.answerRevealed = true;
+      pad.style.display = 'none';          // 公布答案时收起敲拍键盘，突出谱面
+      answerBtn.style.display = 'none';
+
+      var box = U.el('div', { class: 'ear-answer-box' });
+      box.appendChild(U.el('div', { class: 'ear-answer-title', text: info.title || '正确答案' }));
+
+      if (info.text) {
+        box.appendChild(U.el('div', { class: 'ear-answer-text', text: info.text }));
+      }
+
+      if (info.score) {
+        var host = U.el('div', { class: 'score-sheet ear-answer-sheet' });
+        var rendered = false;
+        try {
+          if (APP.vexrender && APP.vexrender.isAvailable && APP.vexrender.isAvailable()) {
+            var r = APP.vexrender.renderScoreInto(host, info.score, { width: 780, showSubText: 'solfa' });
+            rendered = !!(r && r.svg);
+          }
+        } catch (e) { rendered = false; }
+        if (!rendered) {
+          try {
+            var R = builtinRenderer();
+            if (R) {
+              var r2 = R.renderScoreInto(host, info.score, { width: 780, showSubText: 'solfa' });
+              rendered = !!(r2 && r2.svg);
+            }
+          } catch (e2) { rendered = false; }
+        }
+        if (rendered) {
+          box.appendChild(host);
+        } else if (!info.text) {
+          box.appendChild(U.el('div', { class: 'hint', text: '（渲染模块未加载，无法显示谱面）' }));
+        }
+      }
+
+      if (info.replay) {
+        box.appendChild(U.el('button', {
+          class: 'btn small', type: 'button', text: '\u21BB 再听一遍',
+          on: { click: function () { info.replay(); } }
+        }));
+      }
+      answerBox.appendChild(box);
+    }
+
+    /** 给选项按钮标注对错（公布答案时用） */
+    function markChoices(correctValue) {
+      U.queryAll('.chip', choices).forEach(function (btn) {
+        var v = btn.getAttribute('data-value');
+        if (v === null) return;
+        var hit = String(v) === String(correctValue);
+        btn.classList.add(hit ? 'right' : 'wrong');
+        if (hit) btn.classList.add('active');
+      });
+    }
+
     /* ---- 听辨选择题作答 ---- */
     function gradeChoice(value, label) {
       if (!session.question) return;
@@ -318,8 +496,32 @@
       var truth = session.mode === 'interval' ? session.question.name : (session.question.quality === 'major' ? '大三和弦' : '小三和弦');
       feedback.textContent = correct ? ('\u2713 答对了！' + truth) : ('\u2717 答错了，正确答案是「' + truth + '」');
       feedback.className = 'ear-feedback ' + (correct ? 'ok' : 'err');
+      markChoices(session.mode === 'interval' ? session.question.semi : session.question.quality);
       record(correct ? 100 : 0, session.mode, 1);
-      later(newQuestion, 1400);
+
+      /* ---- 公布答案 ---- */
+      var q = session.question;
+      if (q.kind === 'interval') {
+        var lo = TH.pitchName(TH.pitchFromMidi(q.lowMidi, true), { octave: true });
+        var hi = TH.pitchName(TH.pitchFromMidi(q.highMidi, true), { octave: true });
+        showAnswer({
+          title: '正确答案：' + q.name + '（' + (q.semi >= 12 ? q.semi + ' 个半音' : q.semi + ' 个半音') + '）',
+          text: hi + ' − ' + lo + '　（低音 ' + lo + '，高音 ' + hi + '）',
+          score: makePitchScore([q.lowMidi, q.highMidi], { dur: 1, tempo: 72 }),
+          replay: playQuestion
+        });
+      } else {
+        var names = q.midis.map(function (m) { return TH.pitchName(TH.pitchFromMidi(m, true), { octave: true }); });
+        showAnswer({
+          title: '正确答案：' + truth,
+          text: '构成音：' + names.join(' - ') + '　（根音 ' + names[0] + '）',
+          score: makePitchScore(q.midis, { dur: 1, tempo: 72 }),
+          replay: playQuestion
+        });
+      }
+
+      /* 留足时间看谱：从 1.4 秒延长到 6 秒，也可以直接点「换一题」跳过 */
+      later(newQuestion, 6000);
     }
 
     /* ---- 节奏作答 ---- */
@@ -360,7 +562,18 @@
       feedback.textContent = '得分 ' + res.score + ' / 100　' + advice;
       tapBtn.innerHTML = '敲拍作答<br><span class="hint">按空格键或点这里</span>';
       record(res.score, 'rhythm', session.question.targets.length);
-      later(newQuestion, 2200);
+
+      /* ---- 公布答案：把正确的节奏型画出来 ---- */
+      var display = null;
+      try { display = makeRhythmDisplayScore(session.question); } catch (e) { display = null; }
+      showAnswer({
+        title: '正确答案：这段节奏（上方是你敲出来的相对快慢，下方是谱面）',
+        text: '你敲了 ' + session.taps.length + ' 下，目标有 ' + session.question.targets.length + ' 个音头。',
+        score: display,
+        replay: playQuestion
+      });
+
+      later(newQuestion, 6500);
     }
 
     /* ---- 统计与记录 ---- */

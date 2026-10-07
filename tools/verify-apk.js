@@ -30,13 +30,14 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 /* 期望值：必须与 android/AndroidManifest.xml 和 tools/build-apk.js 里的常量一致 */
 const EXPECT = {
   packageName: 'com.yuedu.trainer',
-  versionName: '1.2.0',
-  versionCode: 3,
+  versionName: '1.4.0',
+  versionCode: 5,
   minSdk: 21,
   targetSdk: 34,
   permissions: ['android.permission.RECORD_AUDIO'],
   requiredEntries: ['AndroidManifest.xml', 'classes.dex', 'resources.arsc',
-    'assets/index.html', 'assets/vendor/vexflow.js', 'assets/bridge.js'],
+    'assets/index.html', 'assets/vendor/vexflow.js', 'assets/bridge.js',
+    'assets/src/data/piano.js', 'assets/src/core/jianpu.js'],
   maxBytes: 20 * 1024 * 1024
 };
 

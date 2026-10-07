@@ -11,7 +11,7 @@
 
 'use strict';
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE_NAME = 'yuedu-trainer-' + VERSION;
 
 /* 需要预缓存的应用外壳（脚本顺序与 index.html 一致） */
@@ -29,6 +29,7 @@ const APP_SHELL = [
   './src/core/jianpu.js',
   './src/audio/tuner.js',
   './src/audio/engine.js',
+  './src/data/piano.js',
   './src/data/instruments.js',
   './src/export/exporter.js',
   './src/features/library.js',

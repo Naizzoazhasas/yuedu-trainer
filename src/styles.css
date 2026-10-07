@@ -427,6 +427,32 @@ label.check:hover { color: var(--ink); }
 }
 
 .ear-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.ear-choices .chip.right {
+  background: rgba(52, 211, 153, .22);
+  border-color: var(--ok);
+  color: #a7f3d0;
+}
+.ear-choices .chip.wrong {
+  background: rgba(248, 113, 113, .18);
+  border-color: var(--err);
+  color: #fecaca;
+  text-decoration: line-through;
+}
+
+/* 公布答案：正确谱面 */
+.ear-answer { margin-top: 10px; }
+.ear-answer-box {
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ok);
+  border-radius: var(--radius-sm);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ear-answer-title { font-size: 14px; font-weight: 700; color: var(--ok); }
+.ear-answer-text { font-size: 13px; color: var(--ink-dim); font-family: var(--mono); }
+.ear-answer-sheet { padding: 8px 10px; }
+.ear-answer-box .btn { align-self: flex-start; }
 
 .ear-feedback { min-height: 26px; font-size: 14px; font-weight: 600; color: var(--ink-dim); }
 .ear-feedback.ok { color: var(--ok); }
@@ -444,6 +470,146 @@ label.check:hover { color: var(--ink); }
 .ear-hist-bar.ok { background: var(--ok); }
 .ear-hist-bar.warn { background: var(--warn); }
 .ear-hist-bar.err { background: var(--err); }
+
+/* ---------- 音阶查找对照（简洁视图） ---------- */
+
+.sc-title {
+  text-align: center;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  line-height: 1.25;
+  margin: 6px 0 18px;
+  color: #1aa34a;
+}
+.sc-title-mode { color: #1aa34a; }
+.sc-title-name { color: #1aa34a; }
+
+.sc-selects {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.sc-selects select {
+  width: auto;
+  min-width: 108px;
+  padding: 9px 30px 9px 14px;
+  font-size: 15px;
+  background: var(--paper);
+  color: var(--paper-ink);
+  border: 1px solid #cfd7e3;
+  border-radius: var(--radius-sm);
+}
+
+.sc-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+/* 注意：这个标签落在深色卡片上，要用主题的浅色文字，不能用纸张主题的 --paper-ink */
+.sc-row-label {
+  font-size: 15px;
+  color: var(--ink-dim);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sc-chips { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+
+.sc-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 11px 5px 8px;
+  background: #1aa34a;
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  font: inherit; font-size: 15px; font-weight: 600;
+  cursor: pointer;
+  transition: transform .1s, filter .15s;
+}
+.sc-chip:hover { filter: brightness(1.08); }
+.sc-chip:active { transform: scale(.96); }
+.sc-chip-dot { font-size: 13px; opacity: .9; }
+.sc-chip-name { letter-spacing: .5px; }
+
+.sc-actions {
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.sc-actions .spacer { flex: 1; }
+.sc-actions .btn {
+  background: var(--paper);
+  color: var(--paper-ink);
+  border: 1px solid #cfd7e3;
+}
+.sc-actions .btn:hover { background: #eef2f8; }
+.sc-actions label.check { color: var(--ink-dim); }
+
+.sc-keys {
+  background: #fff;
+  border-radius: var(--radius-sm);
+  padding: 8px 8px 4px;
+  overflow-x: auto;
+}
+/* 钢琴键盘：铺满容器宽度（viewBox 等比，缩放不会变形）。
+ * 早先只写 max-width，SVG 会保留 1:1 固有尺寸，宽屏上就缩成中间一小条。 */
+.sc-keys svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.sc-instr-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; margin-bottom: 10px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+.sc-instr-label { color: var(--ink-dim); font-weight: 600; }
+.sc-instr-item {
+  padding: 2px 8px;
+  background: rgba(77, 141, 255, .14);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: #bcd4ff;
+  font-family: var(--mono);
+}
+
+.sc-details {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+}
+.sc-details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  user-select: none;
+}
+.sc-details > summary:hover { color: var(--ink); }
+.sc-details[open] > summary { margin-bottom: 6px; }
+.sc-circle-wrap { margin-top: 12px; }
+.sc-circle-wrap svg { max-width: 100%; height: auto; }
+
+@media (max-width: 700px) {
+  .sc-title { font-size: 30px; }
+  .sc-selects select { min-width: 88px; font-size: 14px; padding: 8px 24px 8px 10px; }
+  .sc-row-label { font-size: 13.5px; }
+  .sc-chip { font-size: 14px; padding: 5px 9px 5px 7px; }
+}
+
+/* ---------- 音阶查找对照（简洁视图）end ---------- */
 
 /* ===== 调音器 ===== */
 /* 由 src/audio/tuner.js 使用；类名统一前缀 .tuner- 。契约第 12 节的通用变量/组件类由 styles.css 主体维护。 */
@@ -1071,4 +1237,18 @@ label.check:hover { color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   .prac-progress-bar { transition: none; }
+}
+
+/* ===== 简谱 SVG ===== */
+/* 由 src/core/jianpu.js 的 renderSvg() 产出；类名统一前缀 .jp-svg-
+   注意：数字 / 八度点的颜色由 JS 通过 fill 属性控制（播放高亮需要改色、clearHighlight 需要还原），
+   这里只加过渡，绝不写 fill 声明——CSS 规则会覆盖 SVG 呈现属性，写了高亮就失效。 */
+
+.jp-svg-bar-bg { transition: fill .12s linear; }
+
+.jp-svg-ink { transition: fill .12s linear; }
+
+@media (prefers-reduced-motion: reduce) {
+  .jp-svg-bar-bg,
+  .jp-svg-ink { transition: none; }
 }

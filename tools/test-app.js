@@ -87,7 +87,7 @@ ok('关键元素存在 #gen-jianpu-host', !!doc.querySelector('#gen-jianpu-host'
 console.log('2. 加载全部脚本');
 var scriptSrcs = [];
 html.replace(/<script\s+src="([^"]+)"><\/script>/g, function (_, s) { scriptSrcs.push(s); return _; });
-ok('index.html 声明了 15 个脚本（含 VexFlow 与 vexrender）', scriptSrcs.length === 15, scriptSrcs.join(', '));
+ok('index.html 声明了 16 个脚本（含 VexFlow / vexrender / piano）', scriptSrcs.length === 16, scriptSrcs.join(', '));
 
 var loadErrors = [];
 scriptSrcs.forEach(function (rel) {
@@ -126,7 +126,11 @@ if (s0) {
 }
 ok('五线谱已渲染到页面', doc.querySelectorAll('#gen-staff-host svg').length > 0,
   'svg=' + doc.querySelectorAll('#gen-staff-host svg').length);
-ok('简谱已渲染到页面', doc.querySelectorAll('#gen-jianpu-host .jp-wrap').length > 0);
+ok('简谱已渲染到页面（SVG 或 HTML 后端任一）',
+  doc.querySelectorAll('#gen-jianpu-host svg[data-renderer="jianpu-svg"]').length > 0 ||
+  doc.querySelectorAll('#gen-jianpu-host .jp-wrap').length > 0,
+  'svg=' + doc.querySelectorAll('#gen-jianpu-host svg').length +
+  ' html=' + doc.querySelectorAll('#gen-jianpu-host .jp-wrap').length);
 
 /* ---------- 4. 切换全部标签页（触发懒加载初始化） ---------- */
 console.log('4. 依次打开 7 个标签页');
@@ -345,7 +349,7 @@ console.log('9. 脚本顺序');
 var EXPECT = [
   'src/core/util.js', 'src/core/theory.js', 'src/core/generator.js', 'src/core/renderer.js',
   'vendor/vexflow.js', 'src/core/vexrender.js', 'src/core/jianpu.js',
-  'src/audio/tuner.js', 'src/audio/engine.js', 'src/data/instruments.js',
+  'src/audio/tuner.js', 'src/audio/engine.js', 'src/data/piano.js', 'src/data/instruments.js',
   'src/export/exporter.js', 'src/features/library.js', 'src/features/ear.js',
   'src/features/practice.js', 'src/app.js'
 ];

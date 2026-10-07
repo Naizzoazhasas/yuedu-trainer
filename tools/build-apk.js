@@ -46,8 +46,8 @@ const { readZipFile, listZipEntries } = require('./zipreader');
 const APP = {
   packageName: 'com.yuedu.trainer',
   appName: '读谱训练器',
-  versionName: '1.2.0',
-  versionCode: 3,
+  versionName: '1.4.0',
+  versionCode: 5,
   minSdk: 21,      // Android 5.0
   targetSdk: 34    // Android 14
 };

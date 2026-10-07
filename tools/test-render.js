@@ -258,8 +258,10 @@ var jpScore = {
     { pitch: null, dur: 1.5, dotted: false, tie: false, midi: null, pos: 0 }
   ], beats: 4 }]
 };
+/* 说明：简谱默认渲染器已改为 SVG，本节断言的是旧 HTML 结构，
+ * 因此显式传 renderer:'html'；SVG 结构见下方的「SVG 渲染」小节与 tools/test-jianpu-svg.js。 */
 var jc = container();
-var jWrap = JP.renderInto(jc, jpScore, { mode: 'relative' });
+var jWrap = JP.renderInto(jc, jpScore, { mode: 'relative', renderer: 'html' });
 ok('简谱渲染出 .jp-wrap', !!jWrap && jWrap.className.indexOf('jp-wrap') >= 0);
 ok('简谱有 2 个小节', jc.querySelectorAll('.jp-bar').length === 2, 'got ' + jc.querySelectorAll('.jp-bar').length);
 var digits = [];
@@ -283,11 +285,30 @@ ok('减时线元素存在（八分音符）', underlines.length > 0);
 
 /* 固定调模式 */
 var jc2 = container();
-JP.renderInto(jc2, jpScore, { mode: 'fixed' });
+JP.renderInto(jc2, jpScore, { mode: 'fixed', renderer: 'html' });
 var digits2 = [];
 jc2.querySelectorAll('.jp-digit').forEach(function (d) { digits2.push(d.textContent); });
 ok('固定调模式 D4 = 2', digits2[0] === '2', digits2.join('|'));
 ok('固定调模式 A4 = 6', digits2[4] === '6', digits2.join('|'));
+
+/* SVG 渲染（默认渲染器）：详细覆盖见 tools/test-jianpu-svg.js */
+var jsv = container();
+var jsvg = JP.renderInto(jsv, jpScore, { mode: 'relative' });
+ok('简谱默认渲染出 SVG', jsvg && String(jsvg.tagName).toLowerCase() === 'svg' &&
+  jsvg.getAttribute('data-renderer') === 'jianpu-svg', jsvg && jsvg.tagName);
+ok('SVG 有 viewBox', !!jsvg.getAttribute('viewBox'), jsvg.getAttribute('viewBox'));
+ok('SVG 有 2 个 [data-bar-idx]', jsv.querySelectorAll('[data-bar-idx]').length === 2);
+var digitYs = [];
+Array.prototype.forEach.call(jsv.querySelectorAll('.jp-svg-digit'), function (t) { digitYs.push(t.getAttribute('y')); });
+ok('SVG 所有数字基线一致（y=30）', digitYs.length > 0 && digitYs.every(function (y) { return y === '30'; }), digitYs.join(','));
+ok('SVG 小节线条数 = 小节数 + 1', jsv.querySelectorAll('.jp-svg-barline').length === 3,
+  'got ' + jsv.querySelectorAll('.jp-svg-barline').length);
+ok('renderInto 在 renderSvg 抛异常时回退 HTML', (function () {
+  var keep = JP.renderSvg, c = container();
+  JP.renderSvg = function () { throw new Error('boom'); };
+  try { JP.renderInto(c, jpScore, {}); return !!c.querySelector('.jp-wrap'); }
+  finally { JP.renderSvg = keep; }
+})());
 
 /* toText */
 var textOut = JP.toText(jpScore, { mode: 'relative' });
